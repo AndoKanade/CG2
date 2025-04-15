@@ -69,7 +69,6 @@ StyleCopReport.xml
 *_h.h
 *.ilk
 *.meta
-
 [Dd]bug/.obj
 [Dd]ebug/.obj
 [Dd]ebugPublic/.obj
