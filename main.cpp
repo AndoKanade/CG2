@@ -3,14 +3,17 @@
 #include <chrono>
 #include <cstdint>
 #include <d3d12.h>
+#include <dbghelp.h>
 #include <dxgi1_6.h>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <string.h>
+#include <strsafe.h>
 
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "Dbghelp.lib")
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   switch (msg) {
@@ -22,6 +25,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+#pragma region ConvertString
 std::wstring ConvertString(const std::string &str) {
   if (str.empty()) {
     return std::wstring();
@@ -56,14 +60,53 @@ std::string ConvertString(const std::wstring &str) {
   return result;
 }
 
+#pragma endregion
+
+#pragma region log関数
 void Log(std::ostream &os, const std::string &message) {
   os << message << std::endl;
   OutputDebugStringA(message.c_str());
 }
 
 void log(const std::string &message) { OutputDebugStringA(message.c_str()); }
+#pragma endregion
+
+#pragma region ダンプ
+static LONG WINAPI ExportDump(EXCEPTION_POINTERS *exception) {
+
+  SYSTEMTIME time;
+  GetLocalTime(&time);
+  wchar_t filePath[MAX_PATH] = {0};
+  CreateDirectory(L"./Dumps", nullptr);
+  StringCchPrintfW(filePath, MAX_PATH, L"./Dumps/%04d-%02d%02d-%02d%02d.dmp",
+                   time.wYear, time.wMonth, time.wDay, time.wHour,
+                   time.wMinute);
+  HANDLE dumpFileHandle =
+      CreateFile(filePath, GENERIC_READ | GENERIC_WRITE,
+                 FILE_SHARE_WRITE | FILE_SHARE_READ, 0, CREATE_ALWAYS, 0, 0);
+
+  // processIdとクラッシュの発生したthreadIdを取得
+  DWORD processId = GetCurrentProcessId();
+  DWORD threadId = GetCurrentThreadId();
+
+  // 設定情報を入力
+  MINIDUMP_EXCEPTION_INFORMATION minidumpinformation{0};
+  minidumpinformation.ThreadId = threadId;
+  minidumpinformation.ExceptionPointers = exception;
+  minidumpinformation.ClientPointers = TRUE;
+
+  // Dumpを出力、MiniDumpWriteNormalは最低限の情報を出力するフラグ
+  MiniDumpWriteDump(GetCurrentProcess(), processId, dumpFileHandle,
+                    MiniDumpNormal, &minidumpinformation, nullptr, nullptr);
+
+  return EXCEPTION_EXECUTE_HANDLER;
+}
+#pragma endregion
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+
+  // 例外が発生したらダンプを出力する
+  SetUnhandledExceptionFilter(ExportDump);
 
 #pragma region 前準備
 #pragma region ログ
@@ -186,6 +229,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       TranslateMessage(&msg);
       DispatchMessage(&msg);
     } else {
+
       // ゲームの処理
     }
   }
