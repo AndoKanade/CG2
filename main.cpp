@@ -152,7 +152,24 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       CreateWindow(wc.lpszClassName, L"CG2", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
                    CW_USEDEFAULT, wrc.right - wrc.left, wrc.bottom - wrc.top,
                    nullptr, nullptr, wc.hInstance, nullptr);
+
   ShowWindow(hwnd, SW_SHOW);
+
+#pragma region デバッグレイヤー
+
+#ifdef _DEBUG
+
+  ID3D12Debug1 *debugController = nullptr;
+  if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController)))) {
+    // デバッグレイヤーを有効にする
+    debugController->EnableDebugLayer();
+
+    // GPUでもチェックするようにする
+    debugController->SetEnableGPUBasedValidation(TRUE);
+  }
+#endif
+
+#pragma endregion
 
 #pragma endregion
 
@@ -318,27 +335,87 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     } else {
       // ゲームの処理
 
+#pragma region FenceとEventの作成
+
+      ID3D12Fence *fence = nullptr;
+      uint64_t fenceValue = 0;
+      hr = device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE,
+                               IID_PPV_ARGS(&fence));
+      assert(SUCCEEDED(hr));
+
+      HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+      assert(fenceEvent != nullptr);
+#pragma endregion
+
 #pragma region 画面の色を変える
       // コマンドリストのリセット
       UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
 
+#pragma region バリアを張る
+
+      // TransitionBarrierを作る
+      D3D12_RESOURCE_BARRIER barrier{};
+
+      // 今回はTransition
+      barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+
+      // Noneにしておく
+      barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+
+      // バリアを張る対象のリソース。現在のバックバッファに対して行う
+      barrier.Transition.pResource = swapChainResources[backBufferIndex];
+
+      // 遷移前のResourceState
+      barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+
+      // 遷移後のResourceState
+      barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_RENDER_TARGET;
+      // バリアを張るSubresourceIndex
+      commandList->ResourceBarrier(1, &barrier);
+#pragma endregion
+
       commandList->OMSetRenderTargets(1, &rtvHandles[backBufferIndex], false,
                                       nullptr);
-
       // 指定した色で画面全体をクリアする
-      float clearColor[] = {0.1f, 0.25f, 0.5f, 1.0f};//ここで色を変える
+      float clearColor[] = {0.1f, 0.25f, 0.5f, 1.0f}; // ここで色を変える
       commandList->ClearRenderTargetView(rtvHandles[backBufferIndex],
                                          clearColor, 0, nullptr);
+
+#pragma region バリアを張る
+
+      // 今回はRenderTargetからPresentにする
+      barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_RENDER_TARGET;
+      barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+      // バリアを張るSubresourceIndex
+      commandList->ResourceBarrier(1, &barrier);
+
+#pragma endregion
+
       hr = commandList->Close();
       // コマンドリストの生成に失敗したら起動しない
       assert(SUCCEEDED(hr));
 
       // コマンドをキックする
-
       ID3D12CommandList *commandLists[] = {commandList};
       commandQueue->ExecuteCommandLists(1, commandLists);
 
       swapChain->Present(1, 0);
+
+#pragma region フェンスの値を更新
+      // フェンスの値を更新
+      fenceValue++;
+      // GPUがここまでたどり着いたときに,Fenceの値を指定した値に代入するようにSignalを送る
+      commandQueue->Signal(fence, fenceValue);
+
+      if (fence->GetCompletedValue() < fenceValue) {
+        // GPUが指定した値にたどり着くまで待つ
+        fence->SetEventOnCompletion(fenceValue, fenceEvent);
+
+        // イベントを待つ
+        WaitForSingleObject(fenceEvent, INFINITE);
+      }
+#pragma endregion
+
       hr = commandAllocator->Reset();
       assert(SUCCEEDED(hr));
       hr = commandList->Reset(commandAllocator, nullptr);
@@ -348,5 +425,37 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   }
 
   log("Hello,DirectX!\n");
+
+#pragma region エラー放置しない処理
+#ifdef _DEBUG
+  ID3D12InfoQueue *infoQueue = nullptr;
+  if (SUCCEEDED(device->QueryInterface(IID_PPV_ARGS(&infoQueue)))) {
+    // やばいエラー時に止まる
+    infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true);
+    // 警告時に止まる
+    infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true);
+
+    // 抑制するメッセージの設定
+    D3D12_MESSAGE_ID denyIds[] = {
+        D3D12_MESSAGE_ID_RESOURCE_BARRIER_MISMATCHING_COMMAND_LIST_TYPE};
+
+    // 抑制するレベル
+    D3D12_MESSAGE_SEVERITY severrities[] = {D3D12_MESSAGE_SEVERITY_INFO};
+    D3D12_INFO_QUEUE_FILTER filter{};
+    filter.DenyList.NumIDs = _countof(denyIds);
+    filter.DenyList.pIDList = denyIds;
+    filter.DenyList.NumSeverities = _countof(severrities);
+    filter.DenyList.pSeverityList = severrities;
+
+    // 指定したメッセージの表示を抑制する
+    infoQueue->PushStorageFilter(&filter);
+
+    // 解放
+    infoQueue->Release();
+  }
+
+#endif
+#pragma endregion
+
   return 0;
 }
