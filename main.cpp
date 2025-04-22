@@ -25,7 +25,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
-#pragma region ConvertString
+#pragma region ConvertString関数
 std::wstring ConvertString(const std::string &str) {
   if (str.empty()) {
     return std::wstring();
@@ -169,7 +169,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   // 使用するアダプターの変数、最初はnullptrを入れておく
   IDXGIAdapter4 *useAdapter = nullptr;
 
-  // いい順にアダプターを頼む
+  // 良い順にアダプターを頼む
   for (UINT i = 0; dxgiFactory->EnumAdapterByGpuPreference(
                        i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
                        IID_PPV_ARGS(&useAdapter)) != DXGI_ERROR_NOT_FOUND;
@@ -229,11 +229,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       TranslateMessage(&msg);
       DispatchMessage(&msg);
     } else {
-
       // ゲームの処理
+
     }
   }
 
-  OutputDebugStringA("Hello,DirectX!\n");
+  log("Hello,DirectX!\n");
   return 0;
 }
