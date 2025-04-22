@@ -280,6 +280,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   assert(SUCCEEDED(hr));
 
 #pragma endregion
+
 #pragma region DescriptorHeapの作成
 
   // ディスクリプタヒープの生成
