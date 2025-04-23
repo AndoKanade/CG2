@@ -5,6 +5,7 @@
 #include <d3d12.h>
 #include <dbghelp.h>
 #include <dxgi1_6.h>
+#include <dxgidebug.h>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -14,6 +15,7 @@
 #pragma comment(lib, "d3d12.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "Dbghelp.lib")
+#pragma comment(lib, "dxguid.lib")
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   switch (msg) {
@@ -204,6 +206,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                                  ConvertString(adapterDesc.Description)));
       break;
     }
+    useAdapter = nullptr;
   }
 
   // 適切なアダプターが見つからなかったら起動しない
@@ -326,6 +329,18 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
+#pragma region FenceとEventの作成
+
+  ID3D12Fence *fence = nullptr;
+  uint64_t fenceValue = 0;
+  hr = device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE,
+                           IID_PPV_ARGS(&fence));
+  assert(SUCCEEDED(hr));
+
+  HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+  assert(fenceEvent != nullptr);
+#pragma endregion
+
   MSG msg{};
   while (msg.message != WM_QUIT) {
 
@@ -335,18 +350,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       DispatchMessage(&msg);
     } else {
       // ゲームの処理
-
-#pragma region FenceとEventの作成
-
-      ID3D12Fence *fence = nullptr;
-      uint64_t fenceValue = 0;
-      hr = device->CreateFence(fenceValue, D3D12_FENCE_FLAG_NONE,
-                               IID_PPV_ARGS(&fence));
-      assert(SUCCEEDED(hr));
-
-      HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-      assert(fenceEvent != nullptr);
-#pragma endregion
 
 #pragma region 画面の色を変える
       // コマンドリストのリセット
@@ -456,6 +459,39 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   }
 
 #endif
+#pragma endregion
+
+#pragma region 解放処理
+
+  // 生成と逆の順番で解放する
+  CloseHandle(fenceEvent);
+  fence->Release();
+  rtvDescriptorHeap->Release();
+  swapChainResources[0]->Release();
+  swapChainResources[1]->Release();
+  swapChain->Release();
+  commandList->Release();
+  commandAllocator->Release();
+  commandQueue->Release();
+  device->Release();
+  useAdapter->Release();
+  dxgiFactory->Release();
+#ifdef _DEBUG
+
+  debugController->Release();
+#endif
+  CloseWindow(hwnd);
+
+#pragma endregion
+
+#pragma region 解放しているかの確認
+  IDXGIDebug1 *debug;
+  if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debug)))) {
+    debug->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_ALL);
+    debug->ReportLiveObjects(DXGI_DEBUG_APP, DXGI_DEBUG_RLO_ALL);
+    debug->ReportLiveObjects(DXGI_DEBUG_D3D12, DXGI_DEBUG_RLO_ALL);
+    debug->Release();
+  }
 #pragma endregion
 
   return 0;
