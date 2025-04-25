@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <d3d12.h>
 #include <dbghelp.h>
+#include <dxcapi.h>
 #include <dxgi1_6.h>
 #include <dxgidebug.h>
 #include <filesystem>
@@ -16,6 +17,7 @@
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "dxcompiler.lib")
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   switch (msg) {
@@ -26,6 +28,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   }
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
+
+typedef struct Vector4 {
+  float w, x, y, z;
+} Vector4;
+
+#pragma region 関数たち
 
 #pragma region ConvertString関数
 std::wstring ConvertString(const std::string &str) {
@@ -65,12 +73,15 @@ std::string ConvertString(const std::wstring &str) {
 #pragma endregion
 
 #pragma region log関数
+
+// ログファイルの方
 void Log(std::ostream &os, const std::string &message) {
   os << message << std::endl;
   OutputDebugStringA(message.c_str());
 }
 
-void log(const std::string &message) { OutputDebugStringA(message.c_str()); }
+//
+void Log(const std::string &message) { OutputDebugStringA(message.c_str()); }
 #pragma endregion
 
 #pragma region ダンプ
@@ -103,6 +114,100 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS *exception) {
 
   return EXCEPTION_EXECUTE_HANDLER;
 }
+#pragma endregion
+
+#pragma region CompileShader関数
+
+IDxcBlob *CompileShader(
+    // CompilerするShaderファイルへのパス
+    const std::wstring &filePath,
+    // Compilerに使用するProfile
+    const wchar_t *profile,
+    // 初期化で生成したもの3つ
+    IDxcUtils *dxcUtils, IDxcCompiler3 *dxCompiler,
+    IDxcIncludeHandler *includeHandler) {
+
+#pragma region HLSLファイルを読み込む
+
+  Log(ConvertString(std::format(L"Begin CompileShader, path:{}, profile:{}\n",
+                                filePath, profile)));
+
+  IDxcBlobEncoding *shaderSource = nullptr;
+  HRESULT hr = dxcUtils->LoadFile(filePath.c_str(), nullptr, &shaderSource);
+
+  // 読み込めなかったら止まる
+  assert(SUCCEEDED(hr));
+
+  // 読み込んだファイルの内容を設定する
+  DxcBuffer shaderSourceBuffer;
+  shaderSourceBuffer.Ptr = shaderSource->GetBufferPointer();
+  shaderSourceBuffer.Size = shaderSource->GetBufferSize();
+  shaderSourceBuffer.Encoding = DXC_CP_UTF8;
+#pragma endregion
+
+#pragma region コンパイルする
+
+  LPCWSTR arguments[] = {
+      filePath.c_str(), // コンパイル対象のファイル名
+      L"-E",
+      L"main", // エントリーポイントの指定
+      L"-T",
+      profile, // ShaderCompileの設定
+      L"-Zi",
+      L"-Qembed_debug", // デバッグ用の情報を埋め込む
+      L"-Od",           // 最適化を外しておく
+      L"-Zpr",          // メモリレイアウトは行優先
+  };
+
+  // コンパイラの設定
+  IDxcResult *shaderResult = nullptr;
+  hr = dxCompiler->Compile(&shaderSourceBuffer, // 読み込んだファイル
+                           arguments,           // コンパイルオプション
+                           _countof(arguments), // コンパイルオプションの数
+                           includeHandler,      // includeが含まれた数
+                           IID_PPV_ARGS(&shaderResult) // コンパイル結果
+  );
+
+  // コンパイルエラーでなくdxcが起動できないなど致命的なエラーが起きたら止まる
+  assert(SUCCEEDED(hr));
+#pragma endregion
+
+#pragma region 警告 エラーが出ていないか確認する
+
+  IDxcBlobUtf8 *shaderError = nullptr;
+  shaderResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&shaderError), nullptr);
+  if (shaderError != nullptr && shaderError->GetStringLength() != 0) {
+    Log(shaderError->GetStringPointer());
+
+    // 警告、エラーダメゼッタイ
+    assert(false);
+  }
+
+#pragma endregion
+
+#pragma region コンパイル結果を取得して返す
+
+  IDxcBlob *shaderBlob = nullptr;
+  hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob),
+                               nullptr);
+  assert(SUCCEEDED(hr));
+
+  // 成功したらログを出す
+  Log(ConvertString(std::format(L"Compile Succeeded, path:{}, profile:{}\n",
+                                filePath, profile)));
+
+  // もういらないので解放する
+  shaderSource->Release();
+  shaderResult->Release();
+
+  // コンパイル結果を返す
+  return shaderBlob;
+
+#pragma endregion
+}
+
+#pragma endregion
+
 #pragma endregion
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -237,7 +342,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 生成がうまくいかなかったので起動しない
   assert(SUCCEEDED(hr));
-  log("Complete create D3D12Device!!\n");
+  Log("Complete create D3D12Device!!\n");
 
 #pragma endregion
 
@@ -341,6 +446,184 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   assert(fenceEvent != nullptr);
 #pragma endregion
 
+#pragma region DXCの初期化
+
+  IDxcUtils *dxcUtils = nullptr;
+  IDxcCompiler3 *dxcCompiler = nullptr;
+
+  hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
+  assert(SUCCEEDED(hr));
+  hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler));
+  assert(SUCCEEDED(hr));
+
+  IDxcIncludeHandler *includeHandler = nullptr;
+  hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
+  assert(SUCCEEDED(hr));
+
+#pragma endregion
+
+#pragma region ルートシグネチャーを生成する
+
+  D3D12_ROOT_SIGNATURE_DESC descriptionRootSignature{};
+
+  descriptionRootSignature.Flags =
+      D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+
+  ID3DBlob *signatureBlob = nullptr;
+  ID3DBlob *errorBlob = nullptr;
+  hr = D3D12SerializeRootSignature(&descriptionRootSignature,
+                                   D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob,
+                                   &errorBlob);
+
+  if (FAILED(hr)) {
+    Log(reinterpret_cast<char *>(errorBlob->GetBufferPointer()));
+    assert(false);
+  }
+
+  ID3D12RootSignature *rootSignature = nullptr;
+  hr = device->CreateRootSignature(0, signatureBlob->GetBufferPointer(),
+                                   signatureBlob->GetBufferSize(),
+                                   IID_PPV_ARGS(&rootSignature));
+  assert(SUCCEEDED(hr));
+
+#pragma endregion
+
+#pragma region InputLayoutを生成する
+
+  D3D12_INPUT_ELEMENT_DESC inputElementDescs[1] = {};
+  inputElementDescs[0].SemanticName = "POSITION";
+  inputElementDescs[0].SemanticIndex = 0;
+  inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+  inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+  D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
+  inputLayoutDesc.pInputElementDescs = inputElementDescs;
+  inputLayoutDesc.NumElements = _countof(inputElementDescs);
+
+#pragma endregion
+
+#pragma region BlendStateを生成する
+
+  D3D12_BLEND_DESC blendDesc{};
+
+  blendDesc.RenderTarget[0].RenderTargetWriteMask =
+      D3D12_COLOR_WRITE_ENABLE_ALL;
+
+#pragma endregion
+
+#pragma region RasterrizerStateを生成する
+
+  D3D12_RASTERIZER_DESC resterizerDesc{};
+  resterizerDesc.CullMode = D3D12_CULL_MODE_BACK;
+  resterizerDesc.FillMode = D3D12_FILL_MODE_SOLID;
+#pragma endregion
+
+#pragma region shaderをコンパイルする
+
+  IDxcBlob *vertexShaderBlob = CompileShader(
+      L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
+  assert(vertexShaderBlob != nullptr);
+
+  IDxcBlob *pixelShaderBlob = CompileShader(
+      L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
+  assert(pixelShaderBlob != nullptr);
+
+#pragma endregion
+
+#pragma region PSOを生成する
+
+  D3D12_GRAPHICS_PIPELINE_STATE_DESC graphicsPipelineStateDesc{};
+  graphicsPipelineStateDesc.pRootSignature = rootSignature;
+  graphicsPipelineStateDesc.InputLayout = inputLayoutDesc;
+  graphicsPipelineStateDesc.VS = {vertexShaderBlob->GetBufferPointer(),
+                                  vertexShaderBlob->GetBufferSize()};
+  graphicsPipelineStateDesc.PS = {pixelShaderBlob->GetBufferPointer(),
+                                  pixelShaderBlob->GetBufferSize()};
+  graphicsPipelineStateDesc.BlendState = blendDesc;
+  graphicsPipelineStateDesc.RasterizerState = resterizerDesc;
+
+  // 書き込むRTVの情報
+  graphicsPipelineStateDesc.NumRenderTargets = 1;
+  graphicsPipelineStateDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+
+  // 利用する形状のタイプ(今回は三角形)
+  graphicsPipelineStateDesc.PrimitiveTopologyType =
+      D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+  // どのような画面に色を打ち込むかの設定
+  graphicsPipelineStateDesc.SampleDesc.Count = 1;
+  graphicsPipelineStateDesc.SampleMask = D3D12_DEFAULT_SAMPLE_MASK;
+  // 実際に生成
+  ID3D12PipelineState *graphicsPipelineState = nullptr;
+  hr = device->CreateGraphicsPipelineState(
+      &graphicsPipelineStateDesc, IID_PPV_ARGS(&graphicsPipelineState));
+  assert(SUCCEEDED(hr));
+
+#pragma endregion
+
+#pragma region VertexResourceを生成する
+
+  D3D12_HEAP_PROPERTIES uploadHeapProperties{};
+  uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
+  D3D12_RESOURCE_DESC vertexResourceDesc{};
+
+  vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+  vertexResourceDesc.Width = sizeof(Vector4) * 3;
+  vertexResourceDesc.Height = 1;
+  vertexResourceDesc.DepthOrArraySize = 1;
+  vertexResourceDesc.MipLevels = 1;
+  vertexResourceDesc.SampleDesc.Count = 1;
+
+  vertexResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+  ID3D12Resource *vertexResource = nullptr;
+  hr = device->CreateCommittedResource(
+      &uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDesc,
+      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+      IID_PPV_ARGS(&vertexResource));
+  assert(SUCCEEDED(hr));
+
+#pragma endregion
+#pragma region VertexBufferViewを生成する
+
+  D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
+  vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
+
+  vertexBufferView.SizeInBytes = sizeof(Vector4) * 3;
+
+  vertexBufferView.StrideInBytes = sizeof(Vector4);
+
+#pragma endregion
+
+#pragma region resourceにデータを書き込む
+  Vector4 *vertexDate = nullptr;
+
+  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexDate));
+
+  vertexDate[0] = {-0.5f, -0.5f, 0.0f, 1.0f};
+  vertexDate[1] = {0.0f, 0.5f, 0.0f, 1.0f};
+  vertexDate[2] = {0.5f, -0.5f, 0.0f, 1.0f};
+
+#pragma endregion
+#pragma region viewportとscissor
+
+  // Viewport
+  D3D12_VIEWPORT viewport{};
+
+  viewport.Width = kCliantWidth;
+  viewport.Height = kCliantHeight;
+  viewport.TopLeftX = 0;
+  viewport.TopLeftY = 0;
+  viewport.MinDepth = 0.0f;
+  viewport.MaxDepth = 1.0f;
+
+  // Scissor
+  D3D12_RECT scissorRect{};
+  scissorRect.left = 0;
+  scissorRect.right = kCliantWidth;
+  scissorRect.top = 0;
+  scissorRect.bottom = kCliantHeight;
+
+#pragma endregion
+
   MSG msg{};
   while (msg.message != WM_QUIT) {
 
@@ -385,6 +668,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->ClearRenderTargetView(rtvHandles[backBufferIndex],
                                          clearColor, 0, nullptr);
 
+      commandList->RSSetViewports(1, &viewport);
+      commandList->RSSetScissorRects(1, &scissorRect);
+      commandList->SetGraphicsRootSignature(rootSignature);
+      commandList->SetPipelineState(graphicsPipelineState);
+      commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
+      commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      commandList->DrawInstanced(3, 1, 0, 0);
+
 #pragma region バリアを張る
 
       // 今回はRenderTargetからPresentにする
@@ -428,7 +719,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
   }
 
-  log("Hello,DirectX!\n");
+  Log("Hello,DirectX!\n");
 
 #pragma region エラー放置しない処理
 #ifdef _DEBUG
@@ -464,6 +755,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma region 解放処理
 
   // 生成と逆の順番で解放する
+
+  vertexResource->Release();
+  graphicsPipelineState->Release();
+  signatureBlob->Release();
+  if (errorBlob) {
+    errorBlob->Release();
+  }
+  rootSignature->Release();
+  pixelShaderBlob->Release();
+  vertexShaderBlob->Release();
   CloseHandle(fenceEvent);
   fence->Release();
   rtvDescriptorHeap->Release();
@@ -476,6 +777,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   device->Release();
   useAdapter->Release();
   dxgiFactory->Release();
+
 #ifdef _DEBUG
 
   debugController->Release();
