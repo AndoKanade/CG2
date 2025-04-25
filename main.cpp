@@ -475,7 +475,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                                    D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob,
                                    &errorBlob);
 
-
   if (FAILED(hr)) {
     Log(reinterpret_cast<char *>(errorBlob->GetBufferPointer()));
     assert(false);
