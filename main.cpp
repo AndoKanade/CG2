@@ -370,6 +370,147 @@ Matrix4x4 MakeAffineMatrix(const Vector3 &scale, const Vector3 &rotate,
 
   return affineMatrix;
 }
+Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio,
+                                   float nearClip, float farClip) {
+
+  float f = 1.0f / tanf(fovY * 0.5f);
+  float range = farClip / (farClip - nearClip);
+
+  Matrix4x4 result = {};
+
+  result.m[0][0] = f / aspectRatio;
+  result.m[1][1] = f;
+  result.m[2][2] = range;
+  result.m[2][3] = 1.0f;
+  result.m[3][2] = -range * nearClip; // ← DirectX ではマイナス
+  result.m[3][3] = 0.0f;
+
+  return result;
+}
+
+Matrix4x4 Inverse(const Matrix4x4 &m) {
+  Matrix4x4 result;
+
+  // 行列の行列式を計算
+  float det =
+      m.m[0][0] *
+          (m.m[1][1] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) -
+           m.m[1][2] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) +
+           m.m[1][3] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1])) -
+      m.m[0][1] *
+          (m.m[1][0] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) -
+           m.m[1][2] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) +
+           m.m[1][3] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0])) +
+      m.m[0][2] *
+          (m.m[1][0] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) -
+           m.m[1][1] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) +
+           m.m[1][3] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0])) -
+      m.m[0][3] * (m.m[1][0] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1]) -
+                   m.m[1][1] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0]) +
+                   m.m[1][2] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0]));
+
+  if (det == 0) {
+    // 行列式がゼロの場合、逆行列は存在しません
+    return result; // 逆行列は存在しないのでゼロ行列を返す
+  }
+
+  // 行列式の逆数を計算
+  float invDet = 1.0f / det;
+
+  // 各要素を余因子行列から計算
+  result.m[0][0] =
+      (m.m[1][1] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) -
+       m.m[1][2] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) +
+       m.m[1][3] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1])) *
+      invDet;
+  result.m[0][1] =
+      (-m.m[0][1] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) +
+       m.m[0][2] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) -
+       m.m[0][3] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1])) *
+      invDet;
+  result.m[0][2] =
+      (m.m[0][1] * (m.m[1][2] * m.m[3][3] - m.m[1][3] * m.m[3][2]) -
+       m.m[0][2] * (m.m[1][1] * m.m[3][3] - m.m[1][3] * m.m[3][1]) +
+       m.m[0][3] * (m.m[1][1] * m.m[3][2] - m.m[1][2] * m.m[3][1])) *
+      invDet;
+  result.m[0][3] =
+      (-m.m[0][1] * (m.m[1][2] * m.m[2][3] - m.m[1][3] * m.m[2][2]) +
+       m.m[0][2] * (m.m[1][1] * m.m[2][3] - m.m[1][3] * m.m[2][1]) -
+       m.m[0][3] * (m.m[1][1] * m.m[2][2] - m.m[1][2] * m.m[2][1])) *
+      invDet;
+
+  result.m[1][0] =
+      (-m.m[1][0] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) +
+       m.m[1][2] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) -
+       m.m[1][3] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0])) *
+      invDet;
+  result.m[1][1] =
+      (m.m[0][0] * (m.m[2][2] * m.m[3][3] - m.m[2][3] * m.m[3][2]) -
+       m.m[0][2] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) +
+       m.m[0][3] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0])) *
+      invDet;
+  result.m[1][2] =
+      -(m.m[0][0] * (m.m[1][2] * m.m[3][3] - m.m[1][3] * m.m[3][2]) -
+        m.m[0][2] * (m.m[1][0] * m.m[3][3] - m.m[1][3] * m.m[3][0]) +
+        m.m[0][3] * (m.m[1][0] * m.m[3][2] - m.m[1][2] * m.m[3][0])) *
+      invDet;
+
+  result.m[1][3] =
+      (m.m[0][0] * (m.m[1][2] * m.m[2][3] - m.m[1][3] * m.m[2][2]) -
+       m.m[0][2] * (m.m[1][0] * m.m[2][3] - m.m[1][3] * m.m[2][0]) +
+       m.m[0][3] * (m.m[1][0] * m.m[2][2] - m.m[1][2] * m.m[2][0])) *
+      invDet;
+
+  result.m[2][0] =
+      (m.m[1][0] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) -
+       m.m[1][1] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) +
+       m.m[1][3] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0])) *
+      invDet;
+
+  result.m[2][1] =
+      (-m.m[0][0] * (m.m[2][1] * m.m[3][3] - m.m[2][3] * m.m[3][1]) +
+       m.m[0][1] * (m.m[2][0] * m.m[3][3] - m.m[2][3] * m.m[3][0]) -
+       m.m[0][3] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0])) *
+      invDet;
+
+  result.m[2][2] =
+      (m.m[0][0] * (m.m[1][1] * m.m[3][3] - m.m[1][3] * m.m[3][1]) -
+       m.m[0][1] * (m.m[1][0] * m.m[3][3] - m.m[1][3] * m.m[3][0]) +
+       m.m[0][3] * (m.m[1][0] * m.m[3][1] - m.m[1][1] * m.m[3][0])) *
+      invDet;
+
+  result.m[2][3] =
+      (-m.m[0][0] * (m.m[1][1] * m.m[2][3] - m.m[1][3] * m.m[2][1]) +
+       m.m[0][1] * (m.m[1][0] * m.m[2][3] - m.m[1][3] * m.m[2][0]) -
+       m.m[0][3] * (m.m[1][0] * m.m[2][1] - m.m[1][1] * m.m[2][0])) *
+      invDet;
+
+  result.m[3][0] =
+      (-m.m[1][0] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1]) +
+       m.m[1][1] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0]) -
+       m.m[1][2] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0])) *
+      invDet;
+
+  result.m[3][1] =
+      (m.m[0][0] * (m.m[2][1] * m.m[3][2] - m.m[2][2] * m.m[3][1]) -
+       m.m[0][1] * (m.m[2][0] * m.m[3][2] - m.m[2][2] * m.m[3][0]) +
+       m.m[0][2] * (m.m[2][0] * m.m[3][1] - m.m[2][1] * m.m[3][0])) *
+      invDet;
+
+  result.m[3][2] =
+      (-m.m[0][0] * (m.m[1][1] * m.m[3][2] - m.m[1][2] * m.m[3][1]) +
+       m.m[0][1] * (m.m[1][0] * m.m[3][2] - m.m[1][2] * m.m[3][0]) -
+       m.m[0][2] * (m.m[1][0] * m.m[3][1] - m.m[1][1] * m.m[3][0])) *
+      invDet;
+
+  result.m[3][3] =
+      (m.m[0][0] * (m.m[1][1] * m.m[2][2] - m.m[1][2] * m.m[2][1]) -
+       m.m[0][1] * (m.m[1][0] * m.m[2][2] - m.m[1][2] * m.m[2][0]) +
+       m.m[0][2] * (m.m[1][0] * m.m[2][1] - m.m[1][1] * m.m[2][0])) *
+      invDet;
+
+  return result;
+}
 
 #pragma endregion
 
@@ -822,12 +963,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
+#pragma region 変数宣言
   Transform transform{
       {1.0f, 1.0f, 1.0f},
       {0.0f, 0.0f, 0.0f},
       {0.0f, 0.0f, 0.0f},
 
   };
+  Transform cameraTransform{
+      {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -5.0f}};
+  Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
+      0.45f, float(kCliantWidth) / float(kCliantHeight), 0.1f, 100.0f);
+
+#pragma endregion
 
   MSG msg{};
   while (msg.message != WM_QUIT) {
@@ -930,11 +1078,21 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma endregion
 
 #pragma region 三角形の回転
-      transform.rotate.y += 0.03f;
+
       Matrix4x4 worldMatrix = MakeAffineMatrix(
           transform.scale, transform.rotate, transform.translate);
+      Matrix4x4 cameraMatrix =
+          MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate,
+                           cameraTransform.translate);
+      Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+      Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
+          0.45f, float(kCliantWidth) / float(kCliantHeight), 0.1f, 100.0f);
+      Matrix4x4 worldViewProjectionMatrix =
+          Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
-      *wvpData = worldMatrix;
+      transform.rotate.y += 0.03f;
+      *wvpData = worldViewProjectionMatrix;
+
 #pragma endregion
     }
   }
