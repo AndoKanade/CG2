@@ -29,9 +29,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
+#pragma region 構造体
 typedef struct Vector4 {
   float w, x, y, z;
 } Vector4;
+
+typedef struct Vector3 {
+  float x, y, z;
+} Vector3;
+
+typedef struct Matrix4x4 {
+  float m[4][4];
+} Matrix4x4;
+
+typedef struct Transform {
+  Vector3 scale;
+  Vector3 rotate;
+  Vector3 translate;
+} Ttansform;
+
+#pragma endregion
 
 #pragma region 関数たち
 
@@ -241,6 +258,118 @@ ID3D12Resource *CreateBufferResource(ID3D12Device *device, size_t sizeInBytes) {
 }
 
 #pragma endregion
+
+#pragma endregion
+
+#pragma region 数学関数
+
+Matrix4x4 MakeIdentity4x4() {
+  Matrix4x4 result;
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 4; j++) {
+      if (i == j) {
+        result.m[i][j] = 1.0f;
+      } else {
+        result.m[i][j] = 0.0f;
+      }
+    }
+  }
+  return result;
+}
+Matrix4x4 MakeScaleMatrix(const Vector3 &scale) {
+  Matrix4x4 matrix = {}; // すべて0で初期化
+  // スケール行列の設定
+  matrix.m[0][0] = scale.x;
+  matrix.m[1][1] = scale.y;
+  matrix.m[2][2] = scale.z;
+  matrix.m[3][3] = 1.0f;
+  return matrix;
+}
+Matrix4x4 MakeTranslateMatrix(const Vector3 &translate) {
+  Matrix4x4 matrix = {}; // すべて0で初期化
+  // 単位行列の形に設定
+  matrix.m[0][0] = 1.0f;
+  matrix.m[1][1] = 1.0f;
+  matrix.m[2][2] = 1.0f;
+  matrix.m[3][3] = 1.0f;
+  // 平行移動成分を設定
+  matrix.m[3][0] = translate.x;
+  matrix.m[3][1] = translate.y;
+  matrix.m[3][2] = translate.z;
+  return matrix;
+}
+Matrix4x4 MakeRotateXMatrix(float radian) {
+  Matrix4x4 result{};
+
+  result.m[0][0] = 1;
+  result.m[3][3] = 1;
+
+  // X軸回転に必要な部分だけ上書き
+  result.m[1][1] = std::cos(radian);
+  result.m[1][2] = std::sin(radian);
+  result.m[2][1] = -std::sin(radian);
+  result.m[2][2] = std::cos(radian);
+
+  return result;
+}
+Matrix4x4 MakeRotateYMatrix(float radian) {
+  Matrix4x4 result{};
+
+  result.m[1][1] = 1.0f;
+  result.m[3][3] = 1.0f;
+
+  result.m[0][0] = std::cos(radian);
+  result.m[0][2] = -std::sin(radian);
+  result.m[2][0] = std::sin(radian);
+  result.m[2][2] = std::cos(radian);
+
+  return result;
+}
+Matrix4x4 MakeRotateZMatrix(float radian) {
+  Matrix4x4 result{};
+
+  result.m[2][2] = 1;
+  result.m[3][3] = 1;
+
+  result.m[0][0] = std::cos(radian);
+  result.m[0][1] = std::sin(radian);
+  result.m[1][0] = -std::sin(radian);
+  result.m[1][1] = std::cos(radian);
+
+  return result;
+}
+
+Matrix4x4 Multiply(const Matrix4x4 &m1, const Matrix4x4 &m2) {
+  Matrix4x4 result{};
+  for (int row = 0; row < 4; ++row) {
+    for (int col = 0; col < 4; ++col) {
+      result.m[row][col] = 0.0f;
+      for (int k = 0; k < 4; ++k) {
+        result.m[row][col] += m1.m[row][k] * m2.m[k][col];
+      }
+    }
+  }
+  return result;
+}
+
+Matrix4x4 MakeAffineMatrix(const Vector3 &scale, const Vector3 &rotate,
+                           const Vector3 &translate) {
+
+  Matrix4x4 scaleMatrix = MakeScaleMatrix(scale);
+  Matrix4x4 rotateX = MakeRotateXMatrix(rotate.x);
+  Matrix4x4 rotateY = MakeRotateYMatrix(rotate.y);
+  Matrix4x4 rotateZ = MakeRotateZMatrix(rotate.z);
+
+  // 回転順: Z → X → Y →（スケーリング）→ 平行移動
+  Matrix4x4 rotateMatrix = Multiply(Multiply(rotateX, rotateY), rotateZ);
+
+  Matrix4x4 translateMatrix = MakeTranslateMatrix(translate);
+
+  Matrix4x4 affineMatrix =
+      Multiply(Multiply(scaleMatrix, rotateMatrix), translateMatrix);
+
+  return affineMatrix;
+}
 
 #pragma endregion
 
@@ -505,11 +634,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region RootParameter
 
-  D3D12_ROOT_PARAMETER rootParameters[1] = {};
+  D3D12_ROOT_PARAMETER rootParameters[2] = {};
 
   rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
   rootParameters[0].Descriptor.ShaderRegister = 0;
+  rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+  rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
+  rootParameters[1].Descriptor.ShaderRegister = 0;
   descriptionRootSignature.pParameters = rootParameters;
   descriptionRootSignature.NumParameters = _countof(rootParameters);
 
@@ -637,6 +769,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
+#pragma region TransformationMatrix用のResourceを作る
+
+  ID3D12Resource *wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
+  Matrix4x4 *wvpData = nullptr;
+
+  wvpResource->Map(0, nullptr, reinterpret_cast<void **>(&wvpData));
+
+  *wvpData = MakeIdentity4x4();
+#pragma endregion
+
 #pragma region VertexBufferViewを生成する
 
   D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
@@ -679,6 +821,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   scissorRect.bottom = kCliantHeight;
 
 #pragma endregion
+
+  Transform transform{
+      {1.0f, 1.0f, 1.0f},
+      {0.0f, 0.0f, 0.0f},
+      {0.0f, 0.0f, 0.0f},
+
+  };
 
   MSG msg{};
   while (msg.message != WM_QUIT) {
@@ -733,6 +882,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResource->GetGPUVirtualAddress());
+      commandList->SetGraphicsRootConstantBufferView(
+          1, wvpResource->GetGPUVirtualAddress());
       commandList->DrawInstanced(3, 1, 0, 0);
 
 #pragma endregion
@@ -777,6 +928,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       hr = commandList->Reset(commandAllocator, nullptr);
       assert(SUCCEEDED(hr));
 #pragma endregion
+
+#pragma region 三角形の回転
+      transform.rotate.y += 0.03f;
+      Matrix4x4 worldMatrix = MakeAffineMatrix(
+          transform.scale, transform.rotate, transform.translate);
+
+      *wvpData = worldMatrix;
+#pragma endregion
     }
   }
 
@@ -817,6 +976,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 生成と逆の順番で解放する
 
+  wvpResource->Release();
   materialResource->Release();
   vertexResource->Release();
   graphicsPipelineState->Release();
