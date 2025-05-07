@@ -208,6 +208,40 @@ IDxcBlob *CompileShader(
 
 #pragma endregion
 
+#pragma region Resource関数
+
+ID3D12Resource *CreateBufferResource(ID3D12Device *device, size_t sizeInBytes) {
+  IDXGIFactory7 *dxgiFactory = nullptr;
+
+  HRESULT hr = CreateDXGIFactory(IID_PPV_ARGS(&dxgiFactory));
+
+  assert(SUCCEEDED(hr));
+
+  D3D12_HEAP_PROPERTIES uploadHeapProperties{};
+  uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
+  D3D12_RESOURCE_DESC vertexResourceDesc{};
+
+  vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+  vertexResourceDesc.Width = sizeof(Vector4) * 3;
+  vertexResourceDesc.Height = 1;
+  vertexResourceDesc.DepthOrArraySize = 1;
+  vertexResourceDesc.MipLevels = 1;
+  vertexResourceDesc.SampleDesc.Count = 1;
+
+  vertexResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+
+  ID3D12Resource *vertexResource = nullptr;
+  hr = device->CreateCommittedResource(
+      &uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDesc,
+      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+      IID_PPV_ARGS(&vertexResource));
+  assert(SUCCEEDED(hr));
+
+  return vertexResource;
+}
+
+#pragma endregion
+
 #pragma endregion
 
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
@@ -469,12 +503,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   descriptionRootSignature.Flags =
       D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
+#pragma region RootParameter
+
+  D3D12_ROOT_PARAMETER rootParameters[1] = {};
+
+  rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+  rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  rootParameters[0].Descriptor.ShaderRegister = 0;
+  descriptionRootSignature.pParameters = rootParameters;
+  descriptionRootSignature.NumParameters = _countof(rootParameters);
+
+#pragma endregion
+
   ID3DBlob *signatureBlob = nullptr;
   ID3DBlob *errorBlob = nullptr;
   hr = D3D12SerializeRootSignature(&descriptionRootSignature,
                                    D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob,
                                    &errorBlob);
-
 
   if (FAILED(hr)) {
     Log(reinterpret_cast<char *>(errorBlob->GetBufferPointer()));
@@ -575,14 +620,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   vertexResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
 
-  ID3D12Resource *vertexResource = nullptr;
-  hr = device->CreateCommittedResource(
-      &uploadHeapProperties, D3D12_HEAP_FLAG_NONE, &vertexResourceDesc,
-      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
-      IID_PPV_ARGS(&vertexResource));
-  assert(SUCCEEDED(hr));
+  ID3D12Resource *vertexResource =
+      CreateBufferResource(device, sizeof(Vector4) * 3);
 
 #pragma endregion
+
+#pragma region MaterialResource
+
+  ID3D12Resource *materialResource =
+      CreateBufferResource(device, sizeof(Vector4));
+  Vector4 *materialData = nullptr;
+
+  materialResource->Map(0, nullptr, reinterpret_cast<void **>(&materialData));
+
+  *materialData = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+
+#pragma endregion
+
 #pragma region VertexBufferViewを生成する
 
   D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
@@ -604,6 +658,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexDate[2] = {0.5f, -0.5f, 0.0f, 1.0f};
 
 #pragma endregion
+
 #pragma region viewportとscissor
 
   // Viewport
@@ -662,6 +717,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->ResourceBarrier(1, &barrier);
 #pragma endregion
 
+#pragma region Commandregion
       commandList->OMSetRenderTargets(1, &rtvHandles[backBufferIndex], false,
                                       nullptr);
       // 指定した色で画面全体をクリアする
@@ -675,7 +731,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->SetPipelineState(graphicsPipelineState);
       commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
       commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+      commandList->SetGraphicsRootConstantBufferView(
+          0, materialResource->GetGPUVirtualAddress());
       commandList->DrawInstanced(3, 1, 0, 0);
+
+#pragma endregion
 
 #pragma region バリアを張る
 
@@ -757,6 +817,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 生成と逆の順番で解放する
 
+  materialResource->Release();
   vertexResource->Release();
   graphicsPipelineState->Release();
   signatureBlob->Release();
