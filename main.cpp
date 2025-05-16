@@ -61,6 +61,10 @@ typedef struct Transform {
   Vector3 translate;
 } Ttansform;
 
+typedef struct Material {
+  Vector4 color;
+} Material;
+
 #pragma endregion
 
 #pragma region 関数たち
@@ -1081,8 +1085,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
       0.45f, float(kCliantWidth) / float(kCliantHeight), 0.1f, 100.0f);
 
-#pragma endregion
-
 #pragma region ImGuiの初期化
 
   IMGUI_CHECKVERSION();
@@ -1094,8 +1096,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                       srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
                       srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
+  //三角形の初期値(赤)
+  Vector4 triangleColor = {1.0f, 0.0f, 0.0f, 1.0f};
+
+  Material *material = nullptr;
+
 #pragma endregion
 
+#pragma endregion
   MSG msg{};
   while (msg.message != WM_QUIT) {
 
@@ -1111,8 +1119,31 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       ImGui_ImplWin32_NewFrame();
       ImGui::NewFrame();
 
-      ImGui::ShowDemoWindow();
+      //三角形の色を変える
+      ImGui::Begin("Triangle Color");
+      ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
+      ImGui::End();
+
+      // Transformの操作
+      ImGui::Begin("SRT Controller");
+
+      // スケール操作
+      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.1f, 10.0f);
+
+      // 回転操作（ラジアン or 角度変換）
+      ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f, -3.14f,
+                        3.14f);
+      // 角度でやりたい場合は degree ⇄ rad 変換すればOK
+
+      // 位置操作
+      ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f, -10.0f,
+                        10.0f);
+
+      ImGui::End();
+
+      //   ImGui::ShowDemoWindow();
       ImGui::Render();
+
 #endif
 
 #pragma region 画面の色を変える
@@ -1156,6 +1187,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->RSSetScissorRects(1, &scissorRect);
       commandList->SetGraphicsRootSignature(rootSignature);
       commandList->SetPipelineState(graphicsPipelineState);
+
+      // 三角形の色を変える
+      materialResource->Map(0, nullptr, reinterpret_cast<void **>(&material));
+      material->color = triangleColor;
+      materialResource->Unmap(0, nullptr);
+
       commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
       commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
       commandList->SetGraphicsRootConstantBufferView(
@@ -1271,7 +1308,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 生成と逆の順番で解放する
 
- textureResource->Release();
+  textureResource->Release();
   wvpResource->Release();
   materialResource->Release();
   vertexResource->Release();
