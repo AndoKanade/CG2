@@ -1096,7 +1096,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                       srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
                       srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-  //三角形の初期値(赤)
+  // 三角形の初期値(赤)
   Vector4 triangleColor = {1.0f, 0.0f, 0.0f, 1.0f};
 
   Material *material = nullptr;
@@ -1119,7 +1119,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       ImGui_ImplWin32_NewFrame();
       ImGui::NewFrame();
 
-      //三角形の色を変える
+      // 三角形の色を変える
       ImGui::Begin("Triangle Color");
       ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
       ImGui::End();
