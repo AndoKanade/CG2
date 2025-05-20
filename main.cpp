@@ -65,6 +65,11 @@ typedef struct Material {
   Vector4 color;
 } Material;
 
+typedef struct VertexData {
+  Vector4 position;
+  Vector4 texcoord;
+} VertexData;
+
 #pragma endregion
 
 #pragma region 関数たち
@@ -277,7 +282,7 @@ ID3D12Resource *CreateBufferResource(ID3D12Device *device, size_t sizeInBytes) {
   D3D12_RESOURCE_DESC vertexResourceDesc{};
 
   vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-  vertexResourceDesc.Width = sizeof(Vector4) * 3;
+  vertexResourceDesc.Width = sizeInBytes * 3;
   vertexResourceDesc.Height = 1;
   vertexResourceDesc.DepthOrArraySize = 1;
   vertexResourceDesc.MipLevels = 1;
@@ -910,11 +915,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region InputLayoutを生成する
 
-  D3D12_INPUT_ELEMENT_DESC inputElementDescs[1] = {};
+  D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
   inputElementDescs[0].SemanticName = "POSITION";
   inputElementDescs[0].SemanticIndex = 0;
   inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
   inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+  inputElementDescs[1].SemanticName = "TEXCOORD";
+  inputElementDescs[1].SemanticIndex = 0;
+  inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
+  inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
   D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
   inputLayoutDesc.pInputElementDescs = inputElementDescs;
   inputLayoutDesc.NumElements = _countof(inputElementDescs);
@@ -1072,6 +1082,54 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   UploadTextureData(textureResource, mipImages);
 
 #pragma endregion
+
+#pragma region SRVを生成する
+
+  D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+
+  srvDesc.Format = metadata.format;
+  srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+  srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+  srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+
+  // SRVを作成するDescriptorHeapの場所を決める
+
+  D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU =
+      srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+  D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU =
+      srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+  textureSrvHandleCPU.ptr += device->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+  textureSrvHandleGPU.ptr += device->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+  // SRVを生成する
+  device->CreateShaderResourceView(textureResource, &srvDesc,
+                                   textureSrvHandleCPU);
+
+#pragma endregion
+
+//#pragma region 頂点データの更新
+//
+//  VertexData *vertexData = nullptr;
+//
+//  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
+//
+//  // 左下
+//  vertexData[0].position = {-0.5f, -0.5f, 0.0f, 1.0f};
+//  vertexData[0].texcoord = {0.0f, 1.0f};
+//
+//  // 上
+//  vertexData[1].position = {0.0f, 0.5f, 0.0f, 1.0f};
+//  vertexData[1].texcoord = {0.5f, 0.0f};
+//
+//  // 右下
+//  vertexData[2].position = {0.5f, -0.5f, 0.0f, 1.0f};
+//  vertexData[2].texcoord = {1.0f, 1.0f};
+//
+//#pragma endregion
 
 #pragma region 変数宣言
   Transform transform{
