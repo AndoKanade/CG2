@@ -539,6 +539,56 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio,
   return result;
 }
 
+Matrix4x4 MakeOrthographicMatrix(float left, float top, float right,
+                                 float bottom, float nearClip, float farClip) {
+  Matrix4x4 result = {};
+
+  result.m[0][0] = 2.0f / (right - left);
+  result.m[1][1] = 2.0f / (top - bottom);
+  result.m[2][2] = 1.0f / (farClip - nearClip);
+  result.m[3][0] = (left + right) / (left - right);
+  result.m[3][1] = (top + bottom) / (bottom - top);
+  result.m[3][2] = -nearClip / (farClip - nearClip);
+  result.m[3][3] = 1.0f;
+
+  return result;
+}
+Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height,
+                             float minDepth, float maxDepth) {
+  Matrix4x4 result = {};
+
+  float halfWidth = width * 0.5f;
+  float halfHeight = height * 0.5f;
+  float depthRange = maxDepth - minDepth;
+
+  result.m[0][0] = halfWidth;
+  result.m[1][1] = -halfHeight; // Y 軸を反転（DirectX は左上原点）
+  result.m[2][2] = depthRange;
+  result.m[3][0] = left + halfWidth;
+  result.m[3][1] = top + halfHeight;
+  result.m[3][2] = minDepth;
+  result.m[3][3] = 1.0f;
+
+  return result;
+}
+Matrix4x4 Transpose(const Matrix4x4 &m) {
+  Matrix4x4 result;
+  for (int i = 0; i < 4; i++) {
+    for (int j = 0; j < 4; j++) {
+      result.m[i][j] = m.m[j][i];
+    }
+  }
+  return result;
+}
+
+Vector3 Cross(const Vector3 &v1, const Vector3 &v2) {
+  Vector3 result;
+  result.x = v1.y * v2.z - v1.z * v2.y;
+  result.y = v1.z * v2.x - v1.x * v2.z;
+  result.z = v1.x * v2.y - v1.y * v2.x;
+  return result;
+}
+
 Matrix4x4 Inverse(const Matrix4x4 &m) {
   Matrix4x4 result{};
 
@@ -1083,7 +1133,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region VertexResourceを生成する
 
+  // 三角形
   ID3D12Resource *vertexResource =
+      CreateBufferResource(device, sizeof(VertexData) * 6);
+
+  // Spriteの矩形
+
+  ID3D12Resource *vertexResourceSprite =
       CreateBufferResource(device, sizeof(VertexData) * 6);
 
 #pragma endregion
@@ -1115,6 +1171,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   wvpResource->Map(0, nullptr, reinterpret_cast<void **>(&wvpData));
 
   *wvpData = MakeIdentity4x4();
+
+  /// Sprite
+
+  ID3D12Resource *transformationMatrixResourceSprite =
+      CreateBufferResource(device, sizeof(Matrix4x4));
+
+  Matrix4x4 *transformationMatrixDataSprite = nullptr;
+  transformationMatrixResourceSprite->Map(
+      0, nullptr, reinterpret_cast<void **>(&transformationMatrixDataSprite));
+  *transformationMatrixDataSprite = MakeIdentity4x4();
+
 #pragma endregion
 
 #pragma region VertexBufferViewを生成する
@@ -1125,6 +1192,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexBufferView.SizeInBytes = sizeof(VertexData) * 6;
 
   vertexBufferView.StrideInBytes = sizeof(VertexData);
+
+  /// Sprite
+  D3D12_VERTEX_BUFFER_VIEW vertexBufferViewSprite{};
+  vertexBufferViewSprite.BufferLocation =
+      vertexResourceSprite->GetGPUVirtualAddress();
+  vertexBufferViewSprite.SizeInBytes = sizeof(VertexData) * 6;
+  vertexBufferViewSprite.StrideInBytes = sizeof(VertexData);
 
 #pragma endregion
 
@@ -1238,15 +1312,36 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexData[5].position = {0.5f, -0.5f, -0.5f, 1.0f};
   vertexData[5].texcoord = {1.0f, 1.0f};
 
+  /// Spriteの頂点データ
+
+  VertexData *vertexDataSprite = nullptr;
+  vertexResourceSprite->Map(0, nullptr,
+                            reinterpret_cast<void **>(&vertexDataSprite));
+
+  vertexDataSprite[0].position = {0.0f, 360.0f, 0.0f, 1.0f};
+  vertexDataSprite[0].texcoord = {0.0f, 1.0f};
+  vertexDataSprite[1].position = {0.0f, 0.0f, 0.0f, 1.0f};
+  vertexDataSprite[1].texcoord = {0.0f, 0.0f};
+  vertexDataSprite[2].position = {640.0f, 360.0f, 0.0f, 1.0f};
+  vertexDataSprite[2].texcoord = {1.0f, 1.0f};
+
+  vertexDataSprite[3].position = {0.0f, 0.0f, 0.0f, 1.0f};
+  vertexDataSprite[3].texcoord = {0.0f, 0.0f};
+  vertexDataSprite[4].position = {640.0f, 0.0f, 0.0f, 1.0f};
+  vertexDataSprite[4].texcoord = {1.0f, 0.0f};
+  vertexDataSprite[5].position = {640.0f, 360.0f, 0.0f, 1.0f};
+  vertexDataSprite[5].texcoord = {1.0f, 1.0f};
+
 #pragma endregion
 
 #pragma region 変数宣言
-  Transform transform{
-      {1.0f, 1.0f, 1.0f},
-      {0.0f, 0.0f, 0.0f},
-      {0.0f, 0.0f, 0.0f},
+  Transform transform{{1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}
 
   };
+
+  Transform transformSprite{
+      {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
+
   Transform cameraTransform{
       {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -5.0f}};
   Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
@@ -1286,36 +1381,58 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       ImGui_ImplWin32_NewFrame();
       ImGui::NewFrame();
 
-      // 三角形の色を変える
-      ImGui::Begin("Triangle Color");
-      ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
-      ImGui::End();
-
-      // Transformの操作
+      // すべてを1つのウィンドウにまとめる
       ImGui::Begin("SRT Controller");
 
-      // スケール操作
-      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.1f, 10.0f);
+      // --- 三角形の色 ---
+      ImGui::Text("Triangle Color");
+      ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
+      ImGui::Separator();
 
-      // 回転操作（ラジアン or 角度変換）
+      // --- 三角形のSRT ---
+      ImGui::Text("Triangle Transform");
+
+      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.1f, 10.0f);
       ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f, -3.14f,
                         3.14f);
-      // 角度でやりたい場合は degree ⇄ rad 変換すればOK
+      ImGui::DragFloat3("Translate", &transform.translate.x, 1.0f, -100.0f,
+                        100.0f);
 
-      // 位置操作
-      ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f, -10.0f,
+      ImGui::Separator();
+
+      // --- 矩形のSRT ---
+      ImGui::Text("Sprite Transform");
+
+      ImGui::DragFloat3("Scale##Sprite", &transformSprite.scale.x, 0.1f, 0.1f,
                         10.0f);
+      ImGui::DragFloat3("Rotate (rad)##Sprite", &transformSprite.rotate.x,
+                        0.01f, -3.14f, 3.14f);
+      ImGui::DragFloat3("Translate##Sprite", &transformSprite.translate.x, 1.0f,
+                        -700.0f, 700.0f);
 
       ImGui::End();
 
-      //   ImGui::ShowDemoWindow();
+      // ImGui::ShowDemoWindow();
       ImGui::Render();
-
 #endif
 
       ///================================
       /// 更新処理
       /// ==============================
+
+      /// Sprite用のWorldViewProjectionMatrixを作る
+
+      Matrix4x4 worldMatrixSprite =
+          MakeAffineMatrix(transformSprite.scale, transformSprite.rotate,
+                           transformSprite.translate);
+      Matrix4x4 viewMatrixSprite = MakeIdentity4x4();
+      Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
+          0.0f, 0.0f, float(kCliantWidth), float(kCliantHeight), 0.0f, 100.0f);
+      Matrix4x4 worldViewProjectionMatrixSprite =
+          Multiply(worldMatrixSprite,
+                   Multiply(viewMatrixSprite, projectionMatrixSprite));
+
+      *transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
 
 #pragma region 三角形の回転
 
@@ -1400,6 +1517,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           1, wvpResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
       commandList->DrawInstanced(6, 1, 0, 0);
+
+      /// Spriteの描画
+      commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+      commandList->SetGraphicsRootConstantBufferView(
+          1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+      commandList->DrawInstanced(6, 1, 0, 0);
+
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 #pragma endregion
@@ -1491,9 +1615,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   // 生成と逆の順番で解放する
 
   textureResource->Release();
+  transformationMatrixResourceSprite->Release();
   wvpResource->Release();
   materialResource->Release();
   depthStencilResource->Release();
+  vertexResourceSprite->Release();
   vertexResource->Release();
   graphicsPipelineState->Release();
   signatureBlob->Release();
