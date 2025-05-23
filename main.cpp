@@ -51,6 +51,10 @@ typedef struct Vector3 {
   float x, y, z;
 } Vector3;
 
+typedef struct Vector2 {
+  float x, y;
+} Vector2;
+
 typedef struct Matrix4x4 {
   float m[4][4];
 } Matrix4x4;
@@ -64,6 +68,11 @@ typedef struct Transform {
 typedef struct Material {
   Vector4 color;
 } Material;
+
+typedef struct VertexData {
+  Vector4 position;
+  Vector2 texcoord;
+} VertexData;
 
 #pragma endregion
 
@@ -277,7 +286,7 @@ ID3D12Resource *CreateBufferResource(ID3D12Device *device, size_t sizeInBytes) {
   D3D12_RESOURCE_DESC vertexResourceDesc{};
 
   vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-  vertexResourceDesc.Width = sizeof(Vector4) * 3;
+  vertexResourceDesc.Width = sizeInBytes * 3;
   vertexResourceDesc.Height = 1;
   vertexResourceDesc.DepthOrArraySize = 1;
   vertexResourceDesc.MipLevels = 1;
@@ -493,7 +502,7 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio,
 }
 
 Matrix4x4 Inverse(const Matrix4x4 &m) {
-  Matrix4x4 result;
+  Matrix4x4 result{};
 
   // 行列の行列式を計算
   float det =
@@ -876,7 +885,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region RootParameter
 
-  D3D12_ROOT_PARAMETER rootParameters[2] = {};
+  D3D12_DESCRIPTOR_RANGE descriptorRange[1] = {};
+  descriptorRange[0].BaseShaderRegister = 0;
+  descriptorRange[0].NumDescriptors = 1;
+  descriptorRange[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+  descriptorRange[0].OffsetInDescriptorsFromTableStart =
+      D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+  D3D12_ROOT_PARAMETER rootParameters[3] = {};
 
   rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -884,8 +900,31 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
   rootParameters[1].Descriptor.ShaderRegister = 0;
+  rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+  rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
+  rootParameters[2].DescriptorTable.NumDescriptorRanges =
+      _countof(descriptorRange);
   descriptionRootSignature.pParameters = rootParameters;
   descriptionRootSignature.NumParameters = _countof(rootParameters);
+
+#pragma endregion
+
+#pragma region Sampler
+
+  D3D12_STATIC_SAMPLER_DESC staticSamplers[1] = {};
+
+  staticSamplers[0].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+  staticSamplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+  staticSamplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+  staticSamplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+  staticSamplers[0].ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+  staticSamplers[0].MinLOD = 0.0f;
+  staticSamplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+  staticSamplers[0].ShaderRegister = 0;
+  staticSamplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  descriptionRootSignature.pStaticSamplers = staticSamplers;
+  descriptionRootSignature.NumStaticSamplers = _countof(staticSamplers);
 
 #pragma endregion
 
@@ -910,11 +949,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region InputLayoutを生成する
 
-  D3D12_INPUT_ELEMENT_DESC inputElementDescs[1] = {};
+  D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
   inputElementDescs[0].SemanticName = "POSITION";
   inputElementDescs[0].SemanticIndex = 0;
   inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
   inputElementDescs[0].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+  inputElementDescs[1].SemanticName = "TEXCOORD";
+  inputElementDescs[1].SemanticIndex = 0;
+  inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
+  inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+
   D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
   inputLayoutDesc.pInputElementDescs = inputElementDescs;
   inputLayoutDesc.NumElements = _countof(inputElementDescs);
@@ -981,21 +1025,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region VertexResourceを生成する
 
-  D3D12_HEAP_PROPERTIES uploadHeapProperties{};
-  uploadHeapProperties.Type = D3D12_HEAP_TYPE_UPLOAD;
-  D3D12_RESOURCE_DESC vertexResourceDesc{};
-
-  vertexResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
-  vertexResourceDesc.Width = sizeof(Vector4) * 3;
-  vertexResourceDesc.Height = 1;
-  vertexResourceDesc.DepthOrArraySize = 1;
-  vertexResourceDesc.MipLevels = 1;
-  vertexResourceDesc.SampleDesc.Count = 1;
-
-  vertexResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
-
   ID3D12Resource *vertexResource =
-      CreateBufferResource(device, sizeof(Vector4) * 3);
+      CreateBufferResource(device, sizeof(VertexData) * 3);
 
 #pragma endregion
 
@@ -1026,20 +1057,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
   vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
 
-  vertexBufferView.SizeInBytes = sizeof(Vector4) * 3;
+  vertexBufferView.SizeInBytes = sizeof(VertexData) * 3;
 
-  vertexBufferView.StrideInBytes = sizeof(Vector4);
-
-#pragma endregion
-
-#pragma region resourceにデータを書き込む
-  Vector4 *vertexDate = nullptr;
-
-  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexDate));
-
-  vertexDate[0] = {-0.5f, -0.5f, 0.0f, 1.0f};
-  vertexDate[1] = {0.0f, 0.5f, 0.0f, 1.0f};
-  vertexDate[2] = {0.5f, -0.5f, 0.0f, 1.0f};
+  vertexBufferView.StrideInBytes = sizeof(VertexData);
 
 #pragma endregion
 
@@ -1073,6 +1093,54 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
+#pragma region SRVを生成する
+
+  D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+
+  srvDesc.Format = metadata.format;
+  srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+  srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+  srvDesc.Texture2D.MipLevels = UINT(metadata.mipLevels);
+
+  // SRVを作成するDescriptorHeapの場所を決める
+
+  D3D12_CPU_DESCRIPTOR_HANDLE textureSrvHandleCPU =
+      srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+  D3D12_GPU_DESCRIPTOR_HANDLE textureSrvHandleGPU =
+      srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+  textureSrvHandleCPU.ptr += device->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+  textureSrvHandleGPU.ptr += device->GetDescriptorHandleIncrementSize(
+      D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+  // SRVを生成する
+  device->CreateShaderResourceView(textureResource, &srvDesc,
+                                   textureSrvHandleCPU);
+
+#pragma endregion
+
+#pragma region 頂点データの更新
+
+  VertexData *vertexData = nullptr;
+
+  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
+
+  // 左下
+  vertexData[0].position = {-0.5f, -0.5f, 0.0f, 1.0f};
+  vertexData[0].texcoord = {0.0f, 1.0f};
+
+  // 上
+  vertexData[1].position = {0.0f, 0.5f, 0.0f, 1.0f};
+  vertexData[1].texcoord = {0.5f, 0.0f};
+
+  // 右下
+  vertexData[2].position = {0.5f, -0.5f, 0.0f, 1.0f};
+  vertexData[2].texcoord = {1.0f, 1.0f};
+
+#pragma endregion
+
 #pragma region 変数宣言
   Transform transform{
       {1.0f, 1.0f, 1.0f},
@@ -1096,8 +1164,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                       srvDescriptorHeap->GetCPUDescriptorHandleForHeapStart(),
                       srvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
-  // 三角形の初期値(赤)
-  Vector4 triangleColor = {1.0f, 0.0f, 0.0f, 1.0f};
+  // 三角形の初期値
+  Vector4 triangleColor = {1.0f, 1.0f, 1.0f, 1.0f};
 
   Material *material = nullptr;
 
@@ -1146,6 +1214,32 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #endif
 
+      ///================================
+      /// 更新処理
+      /// ==============================
+
+#pragma region 三角形の回転
+
+      Matrix4x4 worldMatrix = MakeAffineMatrix(
+          transform.scale, transform.rotate, transform.translate);
+      Matrix4x4 cameraMatrix =
+          MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate,
+                           cameraTransform.translate);
+      Matrix4x4 viewMatrix = Inverse(cameraMatrix);
+      Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
+          0.45f, float(kCliantWidth) / float(kCliantHeight), 0.1f, 100.0f);
+      Matrix4x4 worldViewProjectionMatrix =
+          Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
+
+      transform.rotate.y += 0.03f;
+      *wvpData = worldViewProjectionMatrix;
+
+#pragma endregion
+
+      ///================================
+      /// 描画処理
+      ///================================
+
 #pragma region 画面の色を変える
       // コマンドリストのリセット
       UINT backBufferIndex = swapChain->GetCurrentBackBufferIndex();
@@ -1186,6 +1280,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->RSSetViewports(1, &viewport);
       commandList->RSSetScissorRects(1, &scissorRect);
       commandList->SetGraphicsRootSignature(rootSignature);
+
       commandList->SetPipelineState(graphicsPipelineState);
 
       // 三角形の色を変える
@@ -1199,6 +1294,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           0, materialResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
           1, wvpResource->GetGPUVirtualAddress());
+      commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
       commandList->DrawInstanced(3, 1, 0, 0);
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
@@ -1243,24 +1339,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       assert(SUCCEEDED(hr));
       hr = commandList->Reset(commandAllocator, nullptr);
       assert(SUCCEEDED(hr));
-#pragma endregion
-
-#pragma region 三角形の回転
-
-      Matrix4x4 worldMatrix = MakeAffineMatrix(
-          transform.scale, transform.rotate, transform.translate);
-      Matrix4x4 cameraMatrix =
-          MakeAffineMatrix(cameraTransform.scale, cameraTransform.rotate,
-                           cameraTransform.translate);
-      Matrix4x4 viewMatrix = Inverse(cameraMatrix);
-      Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
-          0.45f, float(kCliantWidth) / float(kCliantHeight), 0.1f, 100.0f);
-      Matrix4x4 worldViewProjectionMatrix =
-          Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
-
-      transform.rotate.y += 0.03f;
-      *wvpData = worldViewProjectionMatrix;
-
 #pragma endregion
     }
   }
