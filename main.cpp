@@ -5,6 +5,8 @@
 #include <Windows.h>
 #include <cassert>
 #include <chrono>
+#define _USE_MATH_DEFINES
+#include <cmath>
 #include <cstdint>
 #include <d3d12.h>
 #include <dbghelp.h>
@@ -16,6 +18,8 @@
 #include <fstream>
 #include <string.h>
 #include <strsafe.h>
+
+#define PI 3.14159265f
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
                                                              UINT msg,
@@ -1025,8 +1029,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region VertexResourceを生成する
 
+  // 分割数（自由に調整可能）
+  const int kLatitudeDiv = 16;  // 縦（経度）
+  const int kLongitudeDiv = 32; // 横（緯度）
+
+  int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
+
+  // VertexResource を生成
   ID3D12Resource *vertexResource =
-      CreateBufferResource(device, sizeof(VertexData) * 3);
+      CreateBufferResource(device, sizeof(VertexData) * sphereVertexCount);
 
 #pragma endregion
 
@@ -1057,7 +1068,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
   vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
 
-  vertexBufferView.SizeInBytes = sizeof(VertexData) * 3;
+  vertexBufferView.SizeInBytes = sizeof(VertexData) * sphereVertexCount;
 
   vertexBufferView.StrideInBytes = sizeof(VertexData);
 
@@ -1123,21 +1134,70 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region 頂点データの更新
 
+  /// 頂点位置を計算する
+
+  const uint32_t kSubdivision = 4; // 分割数
+  uint32_t latIndex = 0;           // 縦の分割数
+  uint32_t lonIndex = 0;           // 横の分割数
+
+  uint32_t startIndex = (latIndex * kSubdivision * lonIndex) * 6;
+
+  const float kLonEvery = 2.0f * PI / float(kSubdivision); // 経度
+  const float kLatEvery = PI / float(kSubdivision);        // 緯度
+
   VertexData *vertexData = nullptr;
 
   vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
 
-  // 左下
-  vertexData[0].position = {-0.5f, -0.5f, 0.0f, 1.0f};
-  vertexData[0].texcoord = {0.0f, 1.0f};
+  for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
+    float lat = -PI / 2.0f + kLatEvery * latIndex; // 現在の緯度
 
-  // 上
-  vertexData[1].position = {0.0f, 0.5f, 0.0f, 1.0f};
-  vertexData[1].texcoord = {0.5f, 0.0f};
+    for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
+      float lon = lonIndex * kLonEvery; // 現在の経度
+      // 各インデックスを先に定義
+      float lat1 = lat;
+      float lat2 = lat + kLatEvery;
+      float lon1 = lon;
+      float lon2 = lon + kLonEvery;
 
-  // 右下
-  vertexData[2].position = {0.5f, -0.5f, 0.0f, 1.0f};
-  vertexData[2].texcoord = {1.0f, 1.0f};
+      // 緯度・経度インデックスに基づくUV
+      float u = float(lonIndex) / float(kSubdivision);
+      float v = 1.0f - float(latIndex) / float(kSubdivision);
+
+      uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
+
+      // 頂点 a（lat1, lon1）
+      vertexData[start + 0].position.x = cosf(lat1) * cosf(lon1);
+      vertexData[start + 0].position.y = sinf(lat1);
+      vertexData[start + 0].position.z = cosf(lat1) * sinf(lon1);
+      vertexData[start + 0].texcoord = {u, v};
+
+      // 頂点 b（lat2, lon1）
+      vertexData[start + 1].position.x = cosf(lat2) * cosf(lon1);
+      vertexData[start + 1].position.y = sinf(lat2);
+      vertexData[start + 1].position.z = cosf(lat2) * sinf(lon1);
+      vertexData[start + 1].texcoord = {u, v + 1.0f / float(kSubdivision)};
+
+      // 頂点 c（lat1, lon2）
+      vertexData[start + 2].position.x = cosf(lat1) * cosf(lon2);
+      vertexData[start + 2].position.y = sinf(lat1);
+      vertexData[start + 2].position.z = cosf(lat1) * sinf(lon2);
+      vertexData[start + 2].texcoord = {u + 1.0f / float(kSubdivision), v};
+
+      // 頂点 c（再利用）
+      vertexData[start + 3] = vertexData[start + 2];
+
+      // 頂点 b（再利用）
+      vertexData[start + 4] = vertexData[start + 1];
+
+      // 頂点 d（lat2, lon2）
+      vertexData[start + 5].position.x = cosf(lat2) * cosf(lon2);
+      vertexData[start + 5].position.y = sinf(lat2);
+      vertexData[start + 5].position.z = cosf(lat2) * sinf(lon2);
+      vertexData[start + 5].texcoord = {u + 1.0f / float(kSubdivision),
+                                        v + 1.0f / float(kSubdivision)};
+    }
+  }
 
 #pragma endregion
 
@@ -1149,7 +1209,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   };
   Transform cameraTransform{
-      {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -5.0f}};
+      {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -10.0f}};
+
   Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
       0.45f, float(kCliantWidth) / float(kCliantHeight), 0.1f, 100.0f);
 
@@ -1295,7 +1356,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->SetGraphicsRootConstantBufferView(
           1, wvpResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
-      commandList->DrawInstanced(3, 1, 0, 0);
+      commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
 #pragma endregion
