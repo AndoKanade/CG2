@@ -1030,8 +1030,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma region VertexResourceを生成する
 
   // 分割数（自由に調整可能）
-  const int kLatitudeDiv = 16;  // 縦（経度）
-  const int kLongitudeDiv = 32; // 横（緯度）
+  const int kLatitudeDiv = 4;  // 縦（経度）
+  const int kLongitudeDiv = 4; // 横（緯度）
 
   int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
@@ -1137,10 +1137,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   /// 頂点位置を計算する
 
   const uint32_t kSubdivision = 4; // 分割数
-  uint32_t latIndex = 0;           // 縦の分割数
-  uint32_t lonIndex = 0;           // 横の分割数
-
-  uint32_t startIndex = (latIndex * kSubdivision * lonIndex) * 6;
 
   const float kLonEvery = 2.0f * PI / float(kSubdivision); // 経度
   const float kLatEvery = PI / float(kSubdivision);        // 緯度
@@ -1164,38 +1160,42 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       float u = float(lonIndex) / float(kSubdivision);
       float v = 1.0f - float(latIndex) / float(kSubdivision);
 
-      uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
+      uint32_t startIndex = (latIndex * kSubdivision + lonIndex) * 6;
 
       // 頂点 a（lat1, lon1）
-      vertexData[start + 0].position.x = cosf(lat1) * cosf(lon1);
-      vertexData[start + 0].position.y = sinf(lat1);
-      vertexData[start + 0].position.z = cosf(lat1) * sinf(lon1);
-      vertexData[start + 0].texcoord = {u, v};
+      vertexData[startIndex + 0].position.x = cosf(lat1) * cosf(lon1);
+      vertexData[startIndex + 0].position.y = sinf(lat1);
+      vertexData[startIndex + 0].position.z = cosf(lat1) * sinf(lon1);
+      vertexData[startIndex + 0].position.w = 1.0f;
+      vertexData[startIndex + 0].texcoord = {u, v};
 
       // 頂点 b（lat2, lon1）
-      vertexData[start + 1].position.x = cosf(lat2) * cosf(lon1);
-      vertexData[start + 1].position.y = sinf(lat2);
-      vertexData[start + 1].position.z = cosf(lat2) * sinf(lon1);
-      vertexData[start + 1].texcoord = {u, v + 1.0f / float(kSubdivision)};
+      vertexData[startIndex + 1].position.x = cosf(lat2) * cosf(lon1);
+      vertexData[startIndex + 1].position.y = sinf(lat2);
+      vertexData[startIndex + 1].position.z = cosf(lat2) * sinf(lon1);
+      vertexData[startIndex + 1].position.w = 1.0f;
+      vertexData[startIndex + 1].texcoord = {u, v + 1.0f / float(kSubdivision)};
 
       // 頂点 c（lat1, lon2）
-      vertexData[start + 2].position.x = cosf(lat1) * cosf(lon2);
-      vertexData[start + 2].position.y = sinf(lat1);
-      vertexData[start + 2].position.z = cosf(lat1) * sinf(lon2);
-      vertexData[start + 2].texcoord = {u + 1.0f / float(kSubdivision), v};
+      vertexData[startIndex + 2].position.x = cosf(lat1) * cosf(lon2);
+      vertexData[startIndex + 2].position.y = sinf(lat1);
+      vertexData[startIndex + 2].position.z = cosf(lat1) * sinf(lon2);
+      vertexData[startIndex + 2].position.w = 1.0f;
+      vertexData[startIndex + 2].texcoord = {u + 1.0f / float(kSubdivision), v};
 
       // 頂点 c（再利用）
-      vertexData[start + 3] = vertexData[start + 2];
+      vertexData[startIndex + 3] = vertexData[startIndex + 2];
 
       // 頂点 b（再利用）
-      vertexData[start + 4] = vertexData[start + 1];
+      vertexData[startIndex + 4] = vertexData[startIndex + 1];
 
       // 頂点 d（lat2, lon2）
-      vertexData[start + 5].position.x = cosf(lat2) * cosf(lon2);
-      vertexData[start + 5].position.y = sinf(lat2);
-      vertexData[start + 5].position.z = cosf(lat2) * sinf(lon2);
-      vertexData[start + 5].texcoord = {u + 1.0f / float(kSubdivision),
-                                        v + 1.0f / float(kSubdivision)};
+      vertexData[startIndex + 5].position.x = cosf(lat2) * cosf(lon2);
+      vertexData[startIndex + 5].position.y = sinf(lat2);
+      vertexData[startIndex + 5].position.z = cosf(lat2) * sinf(lon2);
+      vertexData[startIndex + 5].position.w = 1.0f;
+      vertexData[startIndex + 5].texcoord = {u + 1.0f / float(kSubdivision),
+                                             v + 1.0f / float(kSubdivision)};
     }
   }
 
@@ -1292,7 +1292,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       Matrix4x4 worldViewProjectionMatrix =
           Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
-      transform.rotate.y += 0.03f;
+    //  transform.rotate.y += 0.03f;
       *wvpData = worldViewProjectionMatrix;
 
 #pragma endregion
