@@ -1138,7 +1138,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       CreateBufferResource(device, sizeof(VertexData) * 6);
 
   // Spriteの矩形
-
   ID3D12Resource *vertexResourceSprite =
       CreateBufferResource(device, sizeof(VertexData) * 6);
 
