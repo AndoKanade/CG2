@@ -1494,6 +1494,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
 
+      commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+
       /// Spriteの描画
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->SetGraphicsRootConstantBufferView(
