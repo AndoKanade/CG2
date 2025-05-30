@@ -1,4 +1,5 @@
 #include "externals/DirectXTex/DirectXTex.h"
+#include "externals/DirectXTex/d3dx12.h"
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
@@ -18,6 +19,7 @@
 #include <fstream>
 #include <string.h>
 #include <strsafe.h>
+#include <vector>
 
 #define PI 3.14159265f
 
@@ -340,7 +342,7 @@ ID3D12Resource *CreateDepthStencilResource(ID3D12Device *device, int32_t width,
 
   HRESULT hr = device->CreateCommittedResource(
       &heapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-      D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClearValue,
+      D3D12_RESOURCE_STATE_COPY_DEST, &depthClearValue,
       IID_PPV_ARGS(&resource));
   assert(SUCCEEDED(hr));
   return resource;
@@ -397,19 +399,32 @@ ID3D12Resource *CreateTextureResource(ID3D12Device *device,
   return resource;
 }
 
-void UploadTextureData(ID3D12Resource *texture,
-                       const DirectX::ScratchImage &mipImages) {
+[[nodiscard]]
+ID3D12Resource *UploadTextureData(ID3D12Resource *texture,
+                                  const DirectX::ScratchImage &mipImages,
+                                  ID3D12Device *device,
+                                  ID3D12GraphicsCommandList *commandList) {
 
-  const DirectX::TexMetadata &metadata = mipImages.GetMetadata();
-  for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; mipLevel++) {
-    const DirectX::Image *img = mipImages.GetImage(mipLevel, 0, 0);
+  std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+  DirectX::PrepareUpLoad(device, mipImages.GetImages(),
+                         mipImages.GetImageCount(), mipImages.GetMetadata(),
+                         subresources);
+  uint64_t intermediateSize =
+      GetRequiredIntermediateSize(texture, 0, UINT(subresources.size()));
+  ID3D12Resource *intermediateResource =
+      CreateBufferResource(device, intermediateSize);
+  UpdateSubresources(commandList, texture, intermediateResource, 0, 0,
+                     UINT(subresources.size()), subresources.data());
 
-    HRESULT hr =
-        texture->WriteToSubresource(UINT(mipLevel), nullptr, img->pixels,
-                                    UINT(img->rowPitch), UINT(img->slicePitch));
-
-    assert(SUCCEEDED(hr));
-  }
+  D3D12_RESOURCE_BARRIER barrier{};
+  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+  barrier.Transition.pResource = texture;
+  barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+  commandList->ResourceBarrier(1, &barrier);
+  return intermediateResource;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE
@@ -420,6 +435,7 @@ GetCPUDescriptorHandle(ID3D12DescriptorHeap *descriptorHeap,
   handleCPU.ptr += descriptorSize * index;
   return handleCPU;
 }
+
 D3D12_GPU_DESCRIPTOR_HANDLE
 GetGPUDscriptorHandle(ID3D12DescriptorHeap *descriptorHeap,
                       uint32_t descriptorSize, uint32_t index) {
@@ -1227,12 +1243,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   DirectX::ScratchImage mipImages = LoadTexture("resource/uvChecker.png");
   const DirectX::TexMetadata metadata = mipImages.GetMetadata();
   ID3D12Resource *textureResource = CreateTextureResource(device, metadata);
-  UploadTextureData(textureResource, mipImages);
+  UploadTextureData(textureResource, mipImages, device, commandList);
 
   DirectX::ScratchImage mipImages2 = LoadTexture("resource/monsterBall.png");
   const DirectX::TexMetadata &metadata2 = mipImages2.GetMetadata();
   ID3D12Resource *textureResource2 = CreateTextureResource(device, metadata2);
-  UploadTextureData(textureResource2, mipImages2);
+  UploadTextureData(textureResource2, mipImages2, device, commandList);
 
 #pragma endregion
 
@@ -1307,7 +1323,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   /// 頂点位置を計算する
 
-  const uint32_t kSubdivision = 4;                         // 分割数
+  const uint32_t kSubdivision = 16;                        // 分割数
   const float kLonEvery = 2.0f * PI / float(kSubdivision); // 経度の間隔
   const float kLatEvery = PI / float(kSubdivision);        // 緯度の間隔
 
@@ -1319,43 +1335,52 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
       float lon = lonIndex * kLonEvery;
 
-      float u = float(lonIndex) / float(kSubdivision);
-      float v = 1.0f - float(latIndex) / float(kSubdivision);
-      float u2 = float(lonIndex + 1) / float(kSubdivision);
-      float v2 = 1.0f - float(latIndex + 1) / float(kSubdivision);
+      // float u = float(lonIndex) / float(kSubdivision);
+      // float v = 1.0f - float(latIndex - 1) / float(kSubdivision);
+      // float u2 = float(lonIndex) / float(kSubdivision);
+      // float v2 = 1.0f - float(latIndex + 1) / float(kSubdivision);
 
       // 頂点 a
       vertexData[start].position.x = cosf(lat) * cosf(lon);
       vertexData[start].position.y = sinf(lat);
       vertexData[start].position.z = cosf(lat) * sinf(lon);
       vertexData[start].position.w = 1.0f;
-      vertexData[start].texcoord = {u, v};
+      vertexData[start].texcoord = {float(lonIndex) / float(kSubdivision),
+                                    1.0f -
+                                        float(latIndex) / float(kSubdivision)};
 
       // 頂点 b
       vertexData[start + 1].position.x = cosf(lat + kLatEvery) * cosf(lon);
       vertexData[start + 1].position.y = sinf(lat + kLatEvery);
       vertexData[start + 1].position.z = cosf(lat + kLatEvery) * sinf(lon);
       vertexData[start + 1].position.w = 1.0f;
-      vertexData[start + 1].texcoord = {u, v2};
+      vertexData[start + 1].texcoord = {float(lonIndex) / float(kSubdivision),
+                                        1.0f - float(latIndex + 1) /
+                                                   float(kSubdivision)};
 
       // 頂点 c
       vertexData[start + 2].position.x = cosf(lat) * cosf(lon + kLonEvery);
       vertexData[start + 2].position.y = sinf(lat);
       vertexData[start + 2].position.z = cosf(lat) * sinf(lon + kLonEvery);
       vertexData[start + 2].position.w = 1.0f;
-      vertexData[start + 2].texcoord = {u2, v};
+      vertexData[start + 2].texcoord = {
+          float(lonIndex + 1) / float(kSubdivision),
+          1.0f - float(latIndex) / float(kSubdivision)};
 
-      vertexData[start + 3] = vertexData[start + 2]; // c
-      vertexData[start + 4] = vertexData[start + 1]; // b
+      vertexData[start + 3] = vertexData[start + 1]; // b
 
       // d
-      vertexData[start + 5].position.x =
+      vertexData[start + 4].position.x =
           cosf(lat + kLatEvery) * cosf(lon + kLonEvery);
-      vertexData[start + 5].position.y = sinf(lat + kLatEvery);
-      vertexData[start + 5].position.z =
+      vertexData[start + 4].position.y = sinf(lat + kLatEvery);
+      vertexData[start + 4].position.z =
           cosf(lat + kLatEvery) * sinf(lon + kLonEvery);
-      vertexData[start + 5].position.w = 1.0f;
-      vertexData[start + 5].texcoord = {u2, v2};
+      vertexData[start + 4].position.w = 1.0f;
+      vertexData[start + 4].texcoord = {
+          float(lonIndex + 1) / float(kSubdivision),
+          1.0f - float(latIndex + 1) / float(kSubdivision)};
+
+      vertexData[start + 5] = vertexData[start + 2]; // c
     }
   }
 
@@ -1443,16 +1468,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       ImGui::Begin("SRT Controller");
 
       // スケール操作
-      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.1f, 10.0f);
+      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
 
       // 回転操作（ラジアン or 角度変換）
-      ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f, -3.14f,
-                        3.14f);
+      ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f);
       // 角度でやりたい場合は degree ⇄ rad 変換すればOK
 
       // 位置操作
-      ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f, -10.0f,
-                        10.0f);
+      ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f);
 
       // --- 矩形のSRT ---
       ImGui::Text("Sprite Transform");
