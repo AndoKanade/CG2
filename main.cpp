@@ -1,12 +1,8 @@
-#include "externals/DirectXTex/DirectXTex.h"
-#include "externals/DirectXTex/d3dx12.h"
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
+#define _USE_MATH_DEFINES
+#define PI 3.14159265f
 #include <Windows.h>
 #include <cassert>
 #include <chrono>
-#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdint>
 #include <d3d12.h>
@@ -21,7 +17,15 @@
 #include <strsafe.h>
 #include <vector>
 
-#define PI 3.14159265f
+#include "externals/DirectXTex/DirectXTex.h"
+#include"externals/DirectXTex/d3dx12.h"
+#include "externals/imgui/imgui.h"
+#include "externals/imgui/imgui_impl_dx12.h"
+#include "externals/imgui/imgui_impl_win32.h"
+
+
+
+
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
                                                              UINT msg,
@@ -33,6 +37,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dxcompiler.lib")
+
+using namespace DirectX;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
@@ -406,7 +412,7 @@ ID3D12Resource *UploadTextureData(ID3D12Resource *texture,
                                   ID3D12GraphicsCommandList *commandList) {
 
   std::vector<D3D12_SUBRESOURCE_DATA> subresources;
-  DirectX::PrepareUpLoad(device, mipImages.GetImages(),
+  DirectX::PrepareUpload(device, mipImages.GetImages(),
                          mipImages.GetImageCount(), mipImages.GetMetadata(),
                          subresources);
   uint64_t intermediateSize =
@@ -1243,12 +1249,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   DirectX::ScratchImage mipImages = LoadTexture("resource/uvChecker.png");
   const DirectX::TexMetadata metadata = mipImages.GetMetadata();
   ID3D12Resource *textureResource = CreateTextureResource(device, metadata);
-  UploadTextureData(textureResource, mipImages, device, commandList);
+  ID3D12Resource* intermadiate =  UploadTextureData(textureResource, mipImages, device, commandList);
 
   DirectX::ScratchImage mipImages2 = LoadTexture("resource/monsterBall.png");
   const DirectX::TexMetadata &metadata2 = mipImages2.GetMetadata();
   ID3D12Resource *textureResource2 = CreateTextureResource(device, metadata2);
-  UploadTextureData(textureResource2, mipImages2, device, commandList);
+  ID3D12Resource *intermadiate2 = UploadTextureData(textureResource2, mipImages2, device, commandList);
 
 #pragma endregion
 
