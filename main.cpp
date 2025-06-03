@@ -1695,10 +1695,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 生成と逆の順番で解放する
 
+  intermadiate2->Release();
   textureResource2->Release();
+  intermadiate->Release();
   textureResource->Release();
   transformationMatrixResourceSprite->Release();
   wvpResource->Release();
+  depthStencilResource->Release();
   materialResource->Release();
   vertexResourceSprite->Release();
   vertexResource->Release();
@@ -1712,6 +1715,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexShaderBlob->Release();
   CloseHandle(fenceEvent);
   fence->Release();
+  dsvDescriptorHeap->Release();
   srvDescriptorHeap->Release();
   rtvDescriptorHeap->Release();
   swapChainResources[0]->Release();
