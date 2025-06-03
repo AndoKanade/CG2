@@ -1437,7 +1437,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   Material *material = nullptr;
 
-  bool useMonsterBall = true;
+  bool useMonsterBall = false;
 
 #pragma endregion
 
@@ -1525,7 +1525,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       Matrix4x4 worldViewProjectionMatrix =
           Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
-      //  transform.rotate.y += 0.03f;
+        transform.rotate.y += 0.01f;
       *wvpData = worldViewProjectionMatrix;
 
 #pragma endregion
@@ -1578,7 +1578,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->RSSetViewports(1, &viewport);
       commandList->RSSetScissorRects(1, &scissorRect);
       commandList->SetGraphicsRootSignature(rootSignature);
-
       commandList->SetPipelineState(graphicsPipelineState);
 
       // 三角形の色を変える
