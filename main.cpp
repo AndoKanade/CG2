@@ -73,14 +73,27 @@ typedef struct Transform {
   Vector3 translate;
 } Ttansform;
 
+typedef struct TransformationMatrix {
+  Matrix4x4 WVP;
+  Matrix4x4 World;
+} TransformationMatrix;
+
 typedef struct Material {
   Vector4 color;
+  int32_t enableLighting;
 } Material;
 
 typedef struct VertexData {
   Vector4 position;
   Vector2 texcoord;
+  Vector3 normal;
 } VertexData;
+
+struct DirectionalLight {
+  Vector4 color;     // ライトの色
+  Vector3 direction; // ライトの方向
+  float intensity;   // ライトの強度
+};
 
 #pragma endregion
 
@@ -998,7 +1011,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   descriptorRange[0].OffsetInDescriptorsFromTableStart =
       D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-  D3D12_ROOT_PARAMETER rootParameters[3] = {};
+  D3D12_ROOT_PARAMETER rootParameters[4] = {};
 
   rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -1011,6 +1024,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
   rootParameters[2].DescriptorTable.NumDescriptorRanges =
       _countof(descriptorRange);
+  rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+  rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+  rootParameters[3].Descriptor.ShaderRegister = 1;
+
   descriptionRootSignature.pParameters = rootParameters;
   descriptionRootSignature.NumParameters = _countof(rootParameters);
 
@@ -1055,7 +1072,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region InputLayoutを生成する
 
-  D3D12_INPUT_ELEMENT_DESC inputElementDescs[2] = {};
+  D3D12_INPUT_ELEMENT_DESC inputElementDescs[3] = {};
   inputElementDescs[0].SemanticName = "POSITION";
   inputElementDescs[0].SemanticIndex = 0;
   inputElementDescs[0].Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -1064,6 +1081,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   inputElementDescs[1].SemanticIndex = 0;
   inputElementDescs[1].Format = DXGI_FORMAT_R32G32_FLOAT;
   inputElementDescs[1].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
+  inputElementDescs[2].SemanticName = "NORMAL";
+  inputElementDescs[2].SemanticIndex = 0;
+  inputElementDescs[2].Format = DXGI_FORMAT_R32G32B32_FLOAT;
+  inputElementDescs[2].AlignedByteOffset = D3D12_APPEND_ALIGNED_ELEMENT;
 
   D3D12_INPUT_LAYOUT_DESC inputLayoutDesc{};
   inputLayoutDesc.pInputElementDescs = inputElementDescs;
@@ -1166,6 +1187,29 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   materialResource->Map(0, nullptr, reinterpret_cast<void **>(&materialData));
   *materialData = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
   materialResource->Map(0, nullptr, reinterpret_cast<void **>(&materialData));
+
+  ID3D12Resource *materialResourceSprite =
+      CreateBufferResource(device, sizeof(Material));
+  Material *materialDataSprite = nullptr;
+  materialResourceSprite->Map(0, nullptr,
+                              reinterpret_cast<void **>(&materialDataSprite));
+  *materialDataSprite = Material{Vector4(1.0f, 1.0f, 1.0f, 1.0f), 0};
+
+  materialDataSprite->enableLighting = false;
+
+#pragma endregion
+
+#pragma region directionalLight
+
+  ID3D12Resource *directionalLightResource =
+      CreateBufferResource(device, sizeof(DirectionalLight));
+  DirectionalLight *directionalLightData = nullptr;
+  directionalLightResource->Map(
+      0, nullptr, reinterpret_cast<void **>(&directionalLightData));
+
+  directionalLightData->color = {1.0f, 1.0f, 1.0f, 1.0f};
+  directionalLightData->direction = {0.0f, -1.0f, 0.0f};
+  directionalLightData->intensity = 1.0f;
 
 #pragma endregion
 
@@ -1357,18 +1401,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       vertexData[start].position = {cosf(lat) * cosf(lon), sinf(lat),
                                     cosf(lat) * sinf(lon), 1.0f};
       vertexData[start].texcoord = {u0, v0};
+      vertexData[start].normal = {vertexData[start].position.x,
+                                  vertexData[start].position.y,
+                                  vertexData[start].position.z};
 
       // 頂点 b
       vertexData[start + 1].position = {
           cosf(lat + kLatEvery) * cosf(lon), sinf(lat + kLatEvery),
           cosf(lat + kLatEvery) * sinf(lon), 1.0f};
       vertexData[start + 1].texcoord = {u0, v1};
+      vertexData[start + 1].normal = {vertexData[start + 1].position.x,
+                                      vertexData[start + 1].position.y,
+                                      vertexData[start + 1].position.z};
 
       // 頂点 c
       vertexData[start + 2].position = {
           cosf(lat) * cosf(lon + kLonEvery), sinf(lat),
           cosf(lat) * sinf(lon + kLonEvery), 1.0f};
       vertexData[start + 2].texcoord = {u1, v0};
+      vertexData[start + 2].normal = {vertexData[start + 2].position.x,
+                                      vertexData[start + 2].position.y,
+                                      vertexData[start + 2].position.z};
 
       // 頂点 d
       vertexData[start + 3] = vertexData[start + 1]; // b
@@ -1377,6 +1430,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           cosf(lat + kLatEvery) * cosf(lon + kLonEvery), sinf(lat + kLatEvery),
           cosf(lat + kLatEvery) * sinf(lon + kLonEvery), 1.0f};
       vertexData[start + 4].texcoord = {u1, v1};
+      vertexData[start + 4].normal = {vertexData[start + 4].position.x,
+                                      vertexData[start + 4].position.y,
+                                      vertexData[start + 4].position.z};
 
       vertexData[start + 5] = vertexData[start + 2]; // c
     }
@@ -1390,17 +1446,23 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   vertexDataSprite[0].position = {0.0f, 360.0f, 0.0f, 1.0f};
   vertexDataSprite[0].texcoord = {0.0f, 1.0f};
+  vertexDataSprite[0].normal = {0.0f, 0.0f, -1.0f};
   vertexDataSprite[1].position = {0.0f, 0.0f, 0.0f, 1.0f};
   vertexDataSprite[1].texcoord = {0.0f, 0.0f};
+  vertexDataSprite[1].normal = {0.0f, 0.0f, -1.0f};
   vertexDataSprite[2].position = {640.0f, 360.0f, 0.0f, 1.0f};
   vertexDataSprite[2].texcoord = {1.0f, 1.0f};
+  vertexDataSprite[2].normal = {0.0f, 0.0f, -1.0f};
 
   vertexDataSprite[3].position = {0.0f, 0.0f, 0.0f, 1.0f};
   vertexDataSprite[3].texcoord = {0.0f, 0.0f};
+  vertexDataSprite[3].normal = {0.0f, 0.0f, -1.0f};
   vertexDataSprite[4].position = {640.0f, 0.0f, 0.0f, 1.0f};
   vertexDataSprite[4].texcoord = {1.0f, 0.0f};
+  vertexDataSprite[4].normal = {0.0f, 0.0f, -1.0f};
   vertexDataSprite[5].position = {640.0f, 360.0f, 0.0f, 1.0f};
   vertexDataSprite[5].texcoord = {1.0f, 1.0f};
+  vertexDataSprite[5].normal = {0.0f, 0.0f, -1.0f};
 
 #pragma endregion
 
@@ -1525,7 +1587,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       Matrix4x4 worldViewProjectionMatrix =
           Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
-        transform.rotate.y += 0.01f;
+      transform.rotate.y += 0.01f;
       *wvpData = worldViewProjectionMatrix;
 
 #pragma endregion
@@ -1591,6 +1653,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           0, materialResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
           1, wvpResource->GetGPUVirtualAddress());
+      commandList->SetGraphicsRootConstantBufferView(
+          0, materialResourceSprite->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
@@ -1700,7 +1764,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   textureResource->Release();
   transformationMatrixResourceSprite->Release();
   wvpResource->Release();
+  directionalLightResource->Release();
   depthStencilResource->Release();
+  materialResourceSprite->Release();
   materialResource->Release();
   vertexResourceSprite->Release();
   vertexResource->Release();
