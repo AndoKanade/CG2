@@ -18,14 +18,10 @@
 #include <vector>
 
 #include "externals/DirectXTex/DirectXTex.h"
-#include"externals/DirectXTex/d3dx12.h"
+#include "externals/DirectXTex/d3dx12.h"
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
-
-
-
-
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
                                                              UINT msg,
@@ -947,6 +943,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                                  rtvHandles[1]);
 
 #pragma endregion
+
 #pragma region DepthStencil
 
   D3D12_DEPTH_STENCIL_DESC depthStencilDesc{};
@@ -1210,6 +1207,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexBufferViewSprite.StrideInBytes = sizeof(VertexData);
 
 #pragma endregion
+
 #pragma region DepthStencilViewを生成する
 
   D3D12_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
@@ -1249,12 +1247,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   DirectX::ScratchImage mipImages = LoadTexture("resource/uvChecker.png");
   const DirectX::TexMetadata metadata = mipImages.GetMetadata();
   ID3D12Resource *textureResource = CreateTextureResource(device, metadata);
-  ID3D12Resource* intermadiate =  UploadTextureData(textureResource, mipImages, device, commandList);
+  ID3D12Resource *intermadiate =
+      UploadTextureData(textureResource, mipImages, device, commandList);
 
   DirectX::ScratchImage mipImages2 = LoadTexture("resource/monsterBall.png");
   const DirectX::TexMetadata &metadata2 = mipImages2.GetMetadata();
   ID3D12Resource *textureResource2 = CreateTextureResource(device, metadata2);
-  ID3D12Resource *intermadiate2 = UploadTextureData(textureResource2, mipImages2, device, commandList);
+  ID3D12Resource *intermadiate2 =
+      UploadTextureData(textureResource2, mipImages2, device, commandList);
 
 #pragma endregion
 
@@ -1316,6 +1316,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                                    textureSrvHandleCPU2);
 
 #pragma endregion
+
 #pragma region dsvHandleの取得
   D3D12_CPU_DESCRIPTOR_HANDLE dsvHandle =
       dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
@@ -1327,64 +1328,55 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   VertexData *vertexData = nullptr;
   vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
 
-  /// 頂点位置を計算する
-
-  const uint32_t kSubdivision = 16;                        // 分割数
-  const float kLonEvery = 2.0f * PI / float(kSubdivision); // 経度の間隔
-  const float kLatEvery = PI / float(kSubdivision);        // 緯度の間隔
+  const uint32_t kSubdivision = 16;
+  const float kLonEvery = 2.0f * PI / float(kSubdivision);
+  const float kLatEvery = PI / float(kSubdivision);
+  const float epsilon = 1e-5f;
 
   for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
-    float lat = -PI / 2.0f + kLatEvery * latIndex; // 現在の緯度
+    float lat = -PI / 2.0f + kLatEvery * latIndex;
 
     for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
-
       uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
       float lon = lonIndex * kLonEvery;
 
-      // float u = float(lonIndex) / float(kSubdivision);
-      // float v = 1.0f - float(latIndex - 1) / float(kSubdivision);
-      // float u2 = float(lonIndex) / float(kSubdivision);
-      // float v2 = 1.0f - float(latIndex + 1) / float(kSubdivision);
+      // 次の経度インデックス
+      uint32_t nextLonIndex = (lonIndex + 1) % kSubdivision;
+
+      // U,V 座標計算（反転なし、継ぎ目対策あり）
+      float u0 = float(lonIndex) / float(kSubdivision);
+      float u1 = float(nextLonIndex) / float(kSubdivision);
+      if (nextLonIndex == 0) {
+        u1 = 1.0f - epsilon; // wrap 防止
+      }
+
+      float v0 = 1.0f - float(latIndex) / float(kSubdivision);
+      float v1 = 1.0f - float(latIndex + 1) / float(kSubdivision);
 
       // 頂点 a
-      vertexData[start].position.x = cosf(lat) * cosf(lon);
-      vertexData[start].position.y = sinf(lat);
-      vertexData[start].position.z = cosf(lat) * sinf(lon);
-      vertexData[start].position.w = 1.0f;
-      vertexData[start].texcoord = {float(lonIndex) / float(kSubdivision),
-                                    1.0f -
-                                        float(latIndex) / float(kSubdivision)};
+      vertexData[start].position = {cosf(lat) * cosf(lon), sinf(lat),
+                                    cosf(lat) * sinf(lon), 1.0f};
+      vertexData[start].texcoord = {u0, v0};
 
       // 頂点 b
-      vertexData[start + 1].position.x = cosf(lat + kLatEvery) * cosf(lon);
-      vertexData[start + 1].position.y = sinf(lat + kLatEvery);
-      vertexData[start + 1].position.z = cosf(lat + kLatEvery) * sinf(lon);
-      vertexData[start + 1].position.w = 1.0f;
-      vertexData[start + 1].texcoord = {float(lonIndex) / float(kSubdivision),
-                                        1.0f - float(latIndex + 1) /
-                                                   float(kSubdivision)};
+      vertexData[start + 1].position = {
+          cosf(lat + kLatEvery) * cosf(lon), sinf(lat + kLatEvery),
+          cosf(lat + kLatEvery) * sinf(lon), 1.0f};
+      vertexData[start + 1].texcoord = {u0, v1};
 
       // 頂点 c
-      vertexData[start + 2].position.x = cosf(lat) * cosf(lon + kLonEvery);
-      vertexData[start + 2].position.y = sinf(lat);
-      vertexData[start + 2].position.z = cosf(lat) * sinf(lon + kLonEvery);
-      vertexData[start + 2].position.w = 1.0f;
-      vertexData[start + 2].texcoord = {
-          float(lonIndex + 1) / float(kSubdivision),
-          1.0f - float(latIndex) / float(kSubdivision)};
+      vertexData[start + 2].position = {
+          cosf(lat) * cosf(lon + kLonEvery), sinf(lat),
+          cosf(lat) * sinf(lon + kLonEvery), 1.0f};
+      vertexData[start + 2].texcoord = {u1, v0};
 
+      // 頂点 d
       vertexData[start + 3] = vertexData[start + 1]; // b
 
-      // d
-      vertexData[start + 4].position.x =
-          cosf(lat + kLatEvery) * cosf(lon + kLonEvery);
-      vertexData[start + 4].position.y = sinf(lat + kLatEvery);
-      vertexData[start + 4].position.z =
-          cosf(lat + kLatEvery) * sinf(lon + kLonEvery);
-      vertexData[start + 4].position.w = 1.0f;
-      vertexData[start + 4].texcoord = {
-          float(lonIndex + 1) / float(kSubdivision),
-          1.0f - float(latIndex + 1) / float(kSubdivision)};
+      vertexData[start + 4].position = {
+          cosf(lat + kLatEvery) * cosf(lon + kLonEvery), sinf(lat + kLatEvery),
+          cosf(lat + kLatEvery) * sinf(lon + kLonEvery), 1.0f};
+      vertexData[start + 4].texcoord = {u1, v1};
 
       vertexData[start + 5] = vertexData[start + 2]; // c
     }
