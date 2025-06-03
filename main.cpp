@@ -1,11 +1,8 @@
-#include "externals/DirectXTex/DirectXTex.h"
-#include "externals/imgui/imgui.h"
-#include "externals/imgui/imgui_impl_dx12.h"
-#include "externals/imgui/imgui_impl_win32.h"
+#define _USE_MATH_DEFINES
+#define PI 3.14159265f
 #include <Windows.h>
 #include <cassert>
 #include <chrono>
-#define _USE_MATH_DEFINES
 #include <cmath>
 #include <cstdint>
 #include <d3d12.h>
@@ -18,8 +15,13 @@
 #include <fstream>
 #include <string.h>
 #include <strsafe.h>
+#include <vector>
 
-#define PI 3.14159265f
+#include "externals/DirectXTex/DirectXTex.h"
+#include "externals/DirectXTex/d3dx12.h"
+#include "externals/imgui/imgui.h"
+#include "externals/imgui/imgui_impl_dx12.h"
+#include "externals/imgui/imgui_impl_win32.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
                                                              UINT msg,
@@ -31,6 +33,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dxcompiler.lib")
+
+using namespace DirectX;
 
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
   if (ImGui_ImplWin32_WndProcHandler(hwnd, msg, wparam, lparam)) {
@@ -340,7 +344,9 @@ ID3D12Resource *CreateDepthStencilResource(ID3D12Device *device, int32_t width,
 
   HRESULT hr = device->CreateCommittedResource(
       &heapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+
       D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClearValue,
+
       IID_PPV_ARGS(&resource));
   assert(SUCCEEDED(hr));
   return resource;
@@ -397,19 +403,32 @@ ID3D12Resource *CreateTextureResource(ID3D12Device *device,
   return resource;
 }
 
-void UploadTextureData(ID3D12Resource *texture,
-                       const DirectX::ScratchImage &mipImages) {
+[[nodiscard]]
+ID3D12Resource *UploadTextureData(ID3D12Resource *texture,
+                                  const DirectX::ScratchImage &mipImages,
+                                  ID3D12Device *device,
+                                  ID3D12GraphicsCommandList *commandList) {
 
-  const DirectX::TexMetadata &metadata = mipImages.GetMetadata();
-  for (size_t mipLevel = 0; mipLevel < metadata.mipLevels; mipLevel++) {
-    const DirectX::Image *img = mipImages.GetImage(mipLevel, 0, 0);
+  std::vector<D3D12_SUBRESOURCE_DATA> subresources;
+  DirectX::PrepareUpload(device, mipImages.GetImages(),
+                         mipImages.GetImageCount(), mipImages.GetMetadata(),
+                         subresources);
+  uint64_t intermediateSize =
+      GetRequiredIntermediateSize(texture, 0, UINT(subresources.size()));
+  ID3D12Resource *intermediateResource =
+      CreateBufferResource(device, intermediateSize);
+  UpdateSubresources(commandList, texture, intermediateResource, 0, 0,
+                     UINT(subresources.size()), subresources.data());
 
-    HRESULT hr =
-        texture->WriteToSubresource(UINT(mipLevel), nullptr, img->pixels,
-                                    UINT(img->rowPitch), UINT(img->slicePitch));
-
-    assert(SUCCEEDED(hr));
-  }
+  D3D12_RESOURCE_BARRIER barrier{};
+  barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+  barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+  barrier.Transition.pResource = texture;
+  barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+  barrier.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+  barrier.Transition.StateAfter = D3D12_RESOURCE_STATE_GENERIC_READ;
+  commandList->ResourceBarrier(1, &barrier);
+  return intermediateResource;
 }
 
 D3D12_CPU_DESCRIPTOR_HANDLE
@@ -420,6 +439,7 @@ GetCPUDescriptorHandle(ID3D12DescriptorHeap *descriptorHeap,
   handleCPU.ptr += descriptorSize * index;
   return handleCPU;
 }
+
 D3D12_GPU_DESCRIPTOR_HANDLE
 GetGPUDscriptorHandle(ID3D12DescriptorHeap *descriptorHeap,
                       uint32_t descriptorSize, uint32_t index) {
@@ -1280,12 +1300,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   DirectX::ScratchImage mipImages = LoadTexture("resource/uvChecker.png");
   const DirectX::TexMetadata metadata = mipImages.GetMetadata();
   ID3D12Resource *textureResource = CreateTextureResource(device, metadata);
-  UploadTextureData(textureResource, mipImages);
+  ID3D12Resource *intermadiate =
+      UploadTextureData(textureResource, mipImages, device, commandList);
 
   DirectX::ScratchImage mipImages2 = LoadTexture("resource/monsterBall.png");
   const DirectX::TexMetadata &metadata2 = mipImages2.GetMetadata();
   ID3D12Resource *textureResource2 = CreateTextureResource(device, metadata2);
-  UploadTextureData(textureResource2, mipImages2);
+  ID3D12Resource *intermadiate2 =
+      UploadTextureData(textureResource2, mipImages2, device, commandList);
 
 #pragma endregion
 
@@ -1358,58 +1380,58 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   VertexData *vertexData = nullptr;
   vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
-  
-  /// 頂点位置を計算する
 
-  const uint32_t kSubdivision = 4;                         // 分割数
-  const float kLonEvery = 2.0f * PI / float(kSubdivision); // 経度の間隔
-  const float kLatEvery = PI / float(kSubdivision);        // 緯度の間隔
+  const uint32_t kSubdivision = 16;
+  const float kLonEvery = 2.0f * PI / float(kSubdivision);
+  const float kLatEvery = PI / float(kSubdivision);
+  const float epsilon = 1e-5f;
 
   for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
-    float lat = -PI / 2.0f + kLatEvery * latIndex; // 現在の緯度
+    float lat = -PI / 2.0f + kLatEvery * latIndex;
 
     for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
-
       uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
       float lon = lonIndex * kLonEvery;
 
-      float u = float(lonIndex) / float(kSubdivision);
-      float v = 1.0f - float(latIndex) / float(kSubdivision);
-      float u2 = float(lonIndex + 1) / float(kSubdivision);
-      float v2 = 1.0f - float(latIndex + 1) / float(kSubdivision);
+      // 次の経度インデックス
+      uint32_t nextLonIndex = (lonIndex + 1) % kSubdivision;
+
+      // U,V 座標計算（反転なし、継ぎ目対策あり）
+      float u0 = float(lonIndex) / float(kSubdivision);
+      float u1 = float(nextLonIndex) / float(kSubdivision);
+      if (nextLonIndex == 0) {
+        u1 = 1.0f - epsilon; // wrap 防止
+      }
+
+      float v0 = 1.0f - float(latIndex) / float(kSubdivision);
+      float v1 = 1.0f - float(latIndex + 1) / float(kSubdivision);
 
       // 頂点 a
-      vertexData[start].position.x = cosf(lat) * cosf(lon);
-      vertexData[start].position.y = sinf(lat);
-      vertexData[start].position.z = cosf(lat) * sinf(lon);
-      vertexData[start].position.w = 1.0f;
-      vertexData[start].texcoord = {u, v};
+      vertexData[start].position = {cosf(lat) * cosf(lon), sinf(lat),
+                                    cosf(lat) * sinf(lon), 1.0f};
+      vertexData[start].texcoord = {u0, v0};
 
       // 頂点 b
-      vertexData[start + 1].position.x = cosf(lat + kLatEvery) * cosf(lon);
-      vertexData[start + 1].position.y = sinf(lat + kLatEvery);
-      vertexData[start + 1].position.z = cosf(lat + kLatEvery) * sinf(lon);
-      vertexData[start + 1].position.w = 1.0f;
-      vertexData[start + 1].texcoord = {u, v2};
+      vertexData[start + 1].position = {
+          cosf(lat + kLatEvery) * cosf(lon), sinf(lat + kLatEvery),
+          cosf(lat + kLatEvery) * sinf(lon), 1.0f};
+      vertexData[start + 1].texcoord = {u0, v1};
 
       // 頂点 c
-      vertexData[start + 2].position.x = cosf(lat) * cosf(lon + kLonEvery);
-      vertexData[start + 2].position.y = sinf(lat);
-      vertexData[start + 2].position.z = cosf(lat) * sinf(lon + kLonEvery);
-      vertexData[start + 2].position.w = 1.0f;
-      vertexData[start + 2].texcoord = {u2, v};
+      vertexData[start + 2].position = {
+          cosf(lat) * cosf(lon + kLonEvery), sinf(lat),
+          cosf(lat) * sinf(lon + kLonEvery), 1.0f};
+      vertexData[start + 2].texcoord = {u1, v0};
 
-      vertexData[start + 3] = vertexData[start + 2]; // c
-      vertexData[start + 4] = vertexData[start + 1]; // b
+      // 頂点 d
+      vertexData[start + 3] = vertexData[start + 1]; // b
 
-      // d
-      vertexData[start + 5].position.x =
-          cosf(lat + kLatEvery) * cosf(lon + kLonEvery);
-      vertexData[start + 5].position.y = sinf(lat + kLatEvery);
-      vertexData[start + 5].position.z =
-          cosf(lat + kLatEvery) * sinf(lon + kLonEvery);
-      vertexData[start + 5].position.w = 1.0f;
-      vertexData[start + 5].texcoord = {u2, v2};
+      vertexData[start + 4].position = {
+          cosf(lat + kLatEvery) * cosf(lon + kLonEvery), sinf(lat + kLatEvery),
+          cosf(lat + kLatEvery) * sinf(lon + kLonEvery), 1.0f};
+      vertexData[start + 4].texcoord = {u1, v1};
+
+      vertexData[start + 5] = vertexData[start + 2]; // c
     }
   }
 
@@ -1516,6 +1538,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       // --- 三角形のSRT ---
       ImGui::Text("Triangle Transform");
 
+      // スケール操作
+      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
+
+      // 回転操作（ラジアン or 角度変換）
+      ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f);
+      // 角度でやりたい場合は degree ⇄ rad 変換すればOK
+
+      // 位置操作
+      ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f);
+
       ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.1f, 10.0f);
       ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f, -3.14f,
                         3.14f);
@@ -1523,16 +1555,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                         100.0f);
 
       ImGui::Separator();
-
-      // --- 矩形のSRT ---
-      ImGui::Text("Sprite Transform");
-
-      ImGui::DragFloat3("Scale##Sprite", &transformSprite.scale.x, 0.1f, 0.1f,
-                        10.0f);
-      ImGui::DragFloat3("Rotate (rad)##Sprite", &transformSprite.rotate.x,
-                        0.01f, -3.14f, 3.14f);
-      ImGui::DragFloat3("Translate##Sprite", &transformSprite.translate.x, 1.0f,
-                        -700.0f, 700.0f);
 
       // --- 矩形のSRT ---
       ImGui::Text("Sprite Transform");
@@ -1754,10 +1776,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 生成と逆の順番で解放する
 
+  intermadiate2->Release();
   textureResource2->Release();
+  intermadiate->Release();
   textureResource->Release();
   transformationMatrixResourceSprite->Release();
   wvpResource->Release();
+  depthStencilResource->Release();
   materialResource->Release();
   depthStencilResource->Release();
   vertexResourceSprite->Release();
