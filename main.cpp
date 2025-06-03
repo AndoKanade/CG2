@@ -344,9 +344,7 @@ ID3D12Resource *CreateDepthStencilResource(ID3D12Device *device, int32_t width,
 
   HRESULT hr = device->CreateCommittedResource(
       &heapProperties, D3D12_HEAP_FLAG_NONE, &resourceDesc,
-
-      D3D12_RESOURCE_STATE_DEPTH_WRITE, &depthClearValue,
-
+      D3D12_RESOURCE_STATE_COPY_DEST, &depthClearValue,
       IID_PPV_ARGS(&resource));
   assert(SUCCEEDED(hr));
   return resource;
@@ -577,56 +575,6 @@ Matrix4x4 MakePerspectiveFovMatrix(float fovY, float aspectRatio,
   result.m[3][2] = -range * nearClip; // ← DirectX ではマイナス
   result.m[3][3] = 0.0f;
 
-  return result;
-}
-
-Matrix4x4 MakeOrthographicMatrix(float left, float top, float right,
-                                 float bottom, float nearClip, float farClip) {
-  Matrix4x4 result = {};
-
-  result.m[0][0] = 2.0f / (right - left);
-  result.m[1][1] = 2.0f / (top - bottom);
-  result.m[2][2] = 1.0f / (farClip - nearClip);
-  result.m[3][0] = (left + right) / (left - right);
-  result.m[3][1] = (top + bottom) / (bottom - top);
-  result.m[3][2] = -nearClip / (farClip - nearClip);
-  result.m[3][3] = 1.0f;
-
-  return result;
-}
-Matrix4x4 MakeViewportMatrix(float left, float top, float width, float height,
-                             float minDepth, float maxDepth) {
-  Matrix4x4 result = {};
-
-  float halfWidth = width * 0.5f;
-  float halfHeight = height * 0.5f;
-  float depthRange = maxDepth - minDepth;
-
-  result.m[0][0] = halfWidth;
-  result.m[1][1] = -halfHeight; // Y 軸を反転（DirectX は左上原点）
-  result.m[2][2] = depthRange;
-  result.m[3][0] = left + halfWidth;
-  result.m[3][1] = top + halfHeight;
-  result.m[3][2] = minDepth;
-  result.m[3][3] = 1.0f;
-
-  return result;
-}
-Matrix4x4 Transpose(const Matrix4x4 &m) {
-  Matrix4x4 result;
-  for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 4; j++) {
-      result.m[i][j] = m.m[j][i];
-    }
-  }
-  return result;
-}
-
-Vector3 Cross(const Vector3 &v1, const Vector3 &v2) {
-  Vector3 result;
-  result.x = v1.y * v2.z - v1.z * v2.y;
-  result.y = v1.z * v2.x - v1.x * v2.z;
-  result.z = v1.x * v2.y - v1.y * v2.x;
   return result;
 }
 
@@ -954,11 +902,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma region DescriptorHeapの作成
 
   // ディスクリプタヒープの生成
-  // RTV
   ID3D12DescriptorHeap *rtvDescriptorHeap =
       CreateDiscriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_RTV, 2, false);
 
-  // SRV
   ID3D12DescriptorHeap *srvDescriptorHeap = CreateDiscriptorHeap(
       device, D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, 28, true);
 
@@ -967,7 +913,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       CreateDiscriptorHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE_DSV, 1, false);
 
   // swapChainからResourceを取得する
-
   ID3D12Resource *swapChainResources[2] = {nullptr};
   hr = swapChain->GetBuffer(0, IID_PPV_ARGS(&swapChainResources[0]));
   assert(SUCCEEDED(hr));
@@ -1189,7 +1134,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region VertexResourceを生成する
 
-
   // 分割数（自由に調整可能）
   const int kLatitudeDiv = 16;  // 縦（経度）
   const int kLongitudeDiv = 16; // 横（緯度）
@@ -1232,6 +1176,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   wvpResource->Map(0, nullptr, reinterpret_cast<void **>(&wvpData));
   *wvpData = MakeIdentity4x4();
+  wvpResource->Map(0, nullptr, reinterpret_cast<void **>(&wvpData));
 
   /// Sprite
 
@@ -1249,7 +1194,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
   vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
-  vertexBufferView.SizeInBytes = sizeof(VertexData) * 6;
+
+  vertexBufferView.SizeInBytes = sizeof(VertexData) * sphereVertexCount;
 
   vertexBufferView.StrideInBytes = sizeof(VertexData);
 
@@ -1272,6 +1218,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   device->CreateDepthStencilView(
       depthStencilResource, &dsvDesc,
       dsvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
 #pragma endregion
 
 #pragma region viewportとscissor
@@ -1455,30 +1402,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexDataSprite[5].position = {640.0f, 360.0f, 0.0f, 1.0f};
   vertexDataSprite[5].texcoord = {1.0f, 1.0f};
 
-  /// Spriteの頂点データ
-
-  VertexData *vertexDataSprite = nullptr;
-  vertexResourceSprite->Map(0, nullptr,
-                            reinterpret_cast<void **>(&vertexDataSprite));
-
-  vertexDataSprite[0].position = {0.0f, 360.0f, 0.0f, 1.0f};
-  vertexDataSprite[0].texcoord = {0.0f, 1.0f};
-  vertexDataSprite[1].position = {0.0f, 0.0f, 0.0f, 1.0f};
-  vertexDataSprite[1].texcoord = {0.0f, 0.0f};
-  vertexDataSprite[2].position = {640.0f, 360.0f, 0.0f, 1.0f};
-  vertexDataSprite[2].texcoord = {1.0f, 1.0f};
-
-  vertexDataSprite[3].position = {0.0f, 0.0f, 0.0f, 1.0f};
-  vertexDataSprite[3].texcoord = {0.0f, 0.0f};
-  vertexDataSprite[4].position = {640.0f, 0.0f, 0.0f, 1.0f};
-  vertexDataSprite[4].texcoord = {1.0f, 0.0f};
-  vertexDataSprite[5].position = {640.0f, 360.0f, 0.0f, 1.0f};
-  vertexDataSprite[5].texcoord = {1.0f, 1.0f};
-
 #pragma endregion
 
 #pragma region 変数宣言
-  Transform transform{{1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}
+  Transform transform{
+      {1.0f, 1.0f, 1.0f},
+      {0.0f, 0.0f, 0.0f},
+      {0.0f, 0.0f, 0.0f},
 
   };
 
@@ -1527,16 +1457,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       ImGui_ImplWin32_NewFrame();
       ImGui::NewFrame();
 
-      // すべてを1つのウィンドウにまとめる
-      ImGui::Begin("SRT Controller");
-
-      // --- 三角形の色 ---
-      ImGui::Text("Triangle Color");
+      // 三角形の色を変える
+      ImGui::Begin("Triangle Color");
       ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
-      ImGui::Separator();
+      ImGui::End();
 
-      // --- 三角形のSRT ---
-      ImGui::Text("Triangle Transform");
+      // Transformの操作
+      ImGui::Begin("SRT Controller");
 
       // スケール操作
       ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
@@ -1547,14 +1474,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       // 位置操作
       ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f);
-
-      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f, 0.1f, 10.0f);
-      ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f, -3.14f,
-                        3.14f);
-      ImGui::DragFloat3("Translate", &transform.translate.x, 1.0f, -100.0f,
-                        100.0f);
-
-      ImGui::Separator();
 
       // --- 矩形のSRT ---
       ImGui::Text("Sprite Transform");
@@ -1570,8 +1489,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       ImGui::End();
 
-      // ImGui::ShowDemoWindow();
+      //   ImGui::ShowDemoWindow();
       ImGui::Render();
+
 #endif
 
       ///================================
@@ -1642,9 +1562,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma endregion
 
 #pragma region 実際の描画処理
-
       commandList->OMSetRenderTargets(1, &rtvHandles[backBufferIndex], false,
-                                      &dsvHandle);
+                                      nullptr);
       // 指定した色で画面全体をクリアする
       float clearColor[] = {0.1f, 0.25f, 0.5f, 1.0f}; // ここで色を変える
       commandList->ClearRenderTargetView(rtvHandles[backBufferIndex],
@@ -1784,7 +1703,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   wvpResource->Release();
   depthStencilResource->Release();
   materialResource->Release();
-  depthStencilResource->Release();
   vertexResourceSprite->Release();
   vertexResource->Release();
   graphicsPipelineState->Release();
