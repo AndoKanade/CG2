@@ -1013,27 +1013,20 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   D3D12_ROOT_PARAMETER rootParameters[4] = {};
 
-  // RootParameter[0] - PixelShader用 Material -> b0
   rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-  rootParameters[0].Descriptor.ShaderRegister = 0; // b0
-
-  // RootParameter[1] - VertexShader用 TransformationMatrix -> b0 → b1 に変更
+  rootParameters[0].Descriptor.ShaderRegister = 0;
   rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-  rootParameters[1].Descriptor.ShaderRegister = 1; // b1 に変更（元: 0）
-
-  // RootParameter[2] - Texture（t0）
+  rootParameters[1].Descriptor.ShaderRegister = 0;
   rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
   rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
   rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
   rootParameters[2].DescriptorTable.NumDescriptorRanges =
       _countof(descriptorRange);
-
-  // RootParameter[3] - PixelShader用 DirectionalLight -> b1 → b2 に変更
   rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-  rootParameters[3].Descriptor.ShaderRegister = 2; // b2 に変更（元: 1）
+  rootParameters[3].Descriptor.ShaderRegister = 1;
 
   descriptionRootSignature.pParameters = rootParameters;
   descriptionRootSignature.NumParameters = _countof(rootParameters);
