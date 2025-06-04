@@ -1013,20 +1013,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   D3D12_ROOT_PARAMETER rootParameters[4] = {};
 
+  // RootParameter[0] - PixelShader用 Material -> b0
   rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-  rootParameters[0].Descriptor.ShaderRegister = 0;
+  rootParameters[0].Descriptor.ShaderRegister = 0; // b0
+
+  // RootParameter[1] - VertexShader用 TransformationMatrix -> b0 → b1 に変更
   rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-  rootParameters[1].Descriptor.ShaderRegister = 0;
+  rootParameters[1].Descriptor.ShaderRegister = 1; // b1 に変更（元: 0）
+
+  // RootParameter[2] - Texture（t0）
   rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
   rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
   rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
   rootParameters[2].DescriptorTable.NumDescriptorRanges =
       _countof(descriptorRange);
+
+  // RootParameter[3] - PixelShader用 DirectionalLight -> b1 → b2 に変更
   rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-  rootParameters[3].Descriptor.ShaderRegister = 1;
+  rootParameters[3].Descriptor.ShaderRegister = 2; // b2 に変更（元: 1）
 
   descriptionRootSignature.pParameters = rootParameters;
   descriptionRootSignature.NumParameters = _countof(rootParameters);
@@ -1551,6 +1558,25 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       ImGui::End();
 
+      if (ImGui::Begin("Light Settings")) {
+        ImGui::Text("Directional Light");
+
+        // 色（RGB）
+        ImGui::ColorEdit3(
+            "Color", reinterpret_cast<float *>(&directionalLightData->color));
+
+        // 方向（XYZ）
+        ImGui::SliderFloat3(
+            "Direction",
+            reinterpret_cast<float *>(&directionalLightData->direction), -1.0f,
+            1.0f);
+
+        // 強さ（Intensity）
+        ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f,
+                           10.0f);
+      }
+      ImGui::End();
+
       //   ImGui::ShowDemoWindow();
       ImGui::Render();
 
@@ -1654,7 +1680,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->SetGraphicsRootConstantBufferView(
           1, wvpResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
-          0, materialResourceSprite->GetGPUVirtualAddress());
+          0, directionalLightResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
@@ -1666,6 +1692,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->SetGraphicsRootConstantBufferView(
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+      commandList->SetGraphicsRootConstantBufferView(
+          0, materialResourceSprite->GetGPUVirtualAddress());
       commandList->DrawInstanced(6, 1, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
