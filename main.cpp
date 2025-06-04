@@ -1557,7 +1557,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         ImGui::Text("Directional Light");
 
         // 色（RGB）
-        ImGui::ColorEdit3(
+        ImGui::ColorEdit4(
             "Color", reinterpret_cast<float *>(&directionalLightData->color));
 
         // 方向（XYZ）
@@ -1565,6 +1565,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
             "Direction",
             reinterpret_cast<float *>(&directionalLightData->direction), -1.0f,
             1.0f);
+
+        Vector3 &v = directionalLightData->direction;
+        XMVECTOR dir = XMVectorSet(v.x, v.y, v.z, 0.0f);
+        dir = XMVector3Normalize(dir);
+        XMStoreFloat3(reinterpret_cast<XMFLOAT3 *>(&v), dir);
 
         // 強さ（Intensity）
         ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f,
@@ -1668,35 +1673,29 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       material->color = triangleColor;
       materialResource->Unmap(0, nullptr);
 
- // 球の描画：Material, WVP, Light を正しくセット
+      // 球の描画：Material, WVP, Light を正しくセット
       commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
       commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
       commandList->SetGraphicsRootConstantBufferView(
-          0, materialResource->GetGPUVirtualAddress()); // Material（b0 Pixel）
+          0, materialResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
-          1, wvpResource->GetGPUVirtualAddress()); // WVP（b0 Vertex）
+          1, wvpResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
-          3, directionalLightResource
-                 ->GetGPUVirtualAddress()); // Light（b1 Pixel）
+          3, directionalLightResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
       commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
 
-      // スプライトの描画：Material, WVP をスプライト用に差し替え
       commandList->SetGraphicsRootConstantBufferView(
-          0, materialResourceSprite
-                 ->GetGPUVirtualAddress()); // Sprite用Material（b0 Pixel）
+          0, materialResourceSprite->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
-          1, transformationMatrixResourceSprite
-                 ->GetGPUVirtualAddress()); // Sprite用WVP（b0 Vertex）
-      commandList->SetGraphicsRootDescriptorTable(
-          2, textureSrvHandleGPU); // 通常テクスチャ
+          1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
+      commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->DrawInstanced(6, 1, 0, 0);
-
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
