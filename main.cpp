@@ -1016,14 +1016,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   rootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
   rootParameters[0].Descriptor.ShaderRegister = 0;
+
   rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
   rootParameters[1].Descriptor.ShaderRegister = 0;
+
   rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
   rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
   rootParameters[2].DescriptorTable.pDescriptorRanges = descriptorRange;
   rootParameters[2].DescriptorTable.NumDescriptorRanges =
       _countof(descriptorRange);
+
   rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
   rootParameters[3].Descriptor.ShaderRegister = 1;
@@ -1186,7 +1189,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   materialResource->Map(0, nullptr, reinterpret_cast<void **>(&materialData));
   *materialData = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
-  materialResource->Map(0, nullptr, reinterpret_cast<void **>(&materialData));
 
   ID3D12Resource *materialResourceSprite =
       CreateBufferResource(device, sizeof(Material));
@@ -1666,28 +1668,35 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       material->color = triangleColor;
       materialResource->Unmap(0, nullptr);
 
+ // 球の描画：Material, WVP, Light を正しくセット
       commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
       commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
       commandList->SetGraphicsRootConstantBufferView(
-          0, materialResource->GetGPUVirtualAddress());
+          0, materialResource->GetGPUVirtualAddress()); // Material（b0 Pixel）
       commandList->SetGraphicsRootConstantBufferView(
-          1, wvpResource->GetGPUVirtualAddress());
+          1, wvpResource->GetGPUVirtualAddress()); // WVP（b0 Vertex）
       commandList->SetGraphicsRootConstantBufferView(
-          0, directionalLightResource->GetGPUVirtualAddress());
+          3, directionalLightResource
+                 ->GetGPUVirtualAddress()); // Light（b1 Pixel）
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
       commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
 
-      commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
+      // スプライトの描画：Material, WVP をスプライト用に差し替え
+      commandList->SetGraphicsRootConstantBufferView(
+          0, materialResourceSprite
+                 ->GetGPUVirtualAddress()); // Sprite用Material（b0 Pixel）
+      commandList->SetGraphicsRootConstantBufferView(
+          1, transformationMatrixResourceSprite
+                 ->GetGPUVirtualAddress()); // Sprite用WVP（b0 Vertex）
+      commandList->SetGraphicsRootDescriptorTable(
+          2, textureSrvHandleGPU); // 通常テクスチャ
 
-      /// Spriteの描画
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
-      commandList->SetGraphicsRootConstantBufferView(
-          1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
-      commandList->SetGraphicsRootConstantBufferView(
-          0, materialResourceSprite->GetGPUVirtualAddress());
       commandList->DrawInstanced(6, 1, 0, 0);
+
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
