@@ -1173,6 +1173,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       CreateBufferResource(device, sizeof(VertexData) * 6);
 
 #pragma endregion
+#pragma region IndexResourceを生成する
+
+  ID3D12Resource *indexResource = CreateBufferResource(
+      device, sizeof(uint32_t) * sphereVertexCount * sphereVertexCount);
+
+  D3D12_INDEX_BUFFER_VIEW indexBufferView{};
+  indexBufferView.BufferLocation = indexResource->GetGPUVirtualAddress();
+  indexBufferView.SizeInBytes = sizeof(uint32_t) * sphereVertexCount;
+  indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+
+  ID3D12Resource *indexResouorceSprite =
+      CreateBufferResource(device, sizeof(uint32_t) * 6);
+
+  D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
+
+  indexBufferViewSprite.BufferLocation =
+      indexResouorceSprite->GetGPUVirtualAddress();
+  indexBufferViewSprite.SizeInBytes = sizeof(uint32_t) * 6;
+  indexBufferViewSprite.Format = DXGI_FORMAT_R32_UINT;
+
+#pragma endregion
 
 #pragma region DepthStencillTextureを生成する
 
@@ -1440,7 +1461,27 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
   }
 
-  
+  uint32_t *indexData = nullptr;
+  indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
+  uint32_t index = 0;
+  for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
+    for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
+      uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
+      // a
+      indexData[index++] = start + 0;
+      // b
+      indexData[index++] = start + 1;
+      // c
+      indexData[index++] = start + 2;
+      // b
+      indexData[index++] = start + 1;
+      // d
+      indexData[index++] = start + 3;
+      // c
+      indexData[index++] = start + 2;
+    }
+  }
+
   /// Spriteの頂点データ
 
   VertexData *vertexDataSprite = nullptr;
@@ -1472,6 +1513,16 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexDataSprite[5].normal = {0.0f, 0.0f, -1.0f};
 
 #pragma endregion
+
+  uint32_t *indexDataSprite = nullptr;
+  indexResouorceSprite->Map(0, nullptr,
+                            reinterpret_cast<void **>(&indexDataSprite));
+  indexDataSprite[0] = 0; // a
+  indexDataSprite[1] = 1; // b
+  indexDataSprite[2] = 2; // c
+  indexDataSprite[3] = 1; // b
+  indexDataSprite[4] = 3; // d
+  indexDataSprite[5] = 2; // c
 
 #pragma region 変数宣言
   Transform transform{
@@ -1687,6 +1738,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
       commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
+      commandList->IASetIndexBuffer(&indexBufferView);
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
@@ -1696,7 +1748,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
+
       commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
+      commandList->DrawIndexedInstanced(sphereVertexCount, 1, 0, 0, 0);
 
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResourceSprite->GetGPUVirtualAddress());
@@ -1705,7 +1759,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+      commandList->IASetIndexBuffer(&indexBufferViewSprite);
       commandList->DrawInstanced(6, 1, 0, 0);
+      commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
@@ -1807,6 +1863,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   depthStencilResource->Release();
   materialResourceSprite->Release();
   materialResource->Release();
+  indexResouorceSprite->Release();
+  indexResource->Release();
   vertexResourceSprite->Release();
   vertexResource->Release();
   graphicsPipelineState->Release();
