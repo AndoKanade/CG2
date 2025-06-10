@@ -1019,7 +1019,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   rootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_VERTEX;
-  rootParameters[1].Descriptor.ShaderRegister = 0;
+  rootParameters[1].Descriptor.ShaderRegister = 1;
 
   rootParameters[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
   rootParameters[2].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
@@ -1029,7 +1029,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   rootParameters[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
   rootParameters[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-  rootParameters[3].Descriptor.ShaderRegister = 1;
+  rootParameters[3].Descriptor.ShaderRegister = 2;
 
   descriptionRootSignature.pParameters = rootParameters;
   descriptionRootSignature.NumParameters = _countof(rootParameters);
@@ -1184,11 +1184,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma region MaterialResource
 
   ID3D12Resource *materialResource =
-      CreateBufferResource(device, sizeof(Vector4));
-  Vector4 *materialData = nullptr;
+      CreateBufferResource(device, sizeof(Material));
+  Material *materialData = nullptr;
 
   materialResource->Map(0, nullptr, reinterpret_cast<void **>(&materialData));
-  *materialData = Vector4(1.0f, 0.0f, 0.0f, 1.0f);
+  *materialData = Material{Vector4(1.0f, 1.0f, 1.0f, 1.0f), 1};
+  materialData->enableLighting = true;
 
   ID3D12Resource *materialResourceSprite =
       CreateBufferResource(device, sizeof(Material));
@@ -1217,11 +1218,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region TransformationMatrix用のResourceを作る
 
-  ID3D12Resource *wvpResource = CreateBufferResource(device, sizeof(Matrix4x4));
-  Matrix4x4 *wvpData = nullptr;
+  ID3D12Resource *wvpResource =
+      CreateBufferResource(device, sizeof(TransformationMatrix));
+  TransformationMatrix *wvpData = nullptr;
 
-  wvpResource->Map(0, nullptr, reinterpret_cast<void **>(&wvpData));
-  *wvpData = MakeIdentity4x4();
   wvpResource->Map(0, nullptr, reinterpret_cast<void **>(&wvpData));
 
   /// Sprite
@@ -1440,6 +1440,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
   }
 
+  
   /// Spriteの頂点データ
 
   VertexData *vertexDataSprite = nullptr;
@@ -1449,9 +1450,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexDataSprite[0].position = {0.0f, 360.0f, 0.0f, 1.0f};
   vertexDataSprite[0].texcoord = {0.0f, 1.0f};
   vertexDataSprite[0].normal = {0.0f, 0.0f, -1.0f};
+
   vertexDataSprite[1].position = {0.0f, 0.0f, 0.0f, 1.0f};
   vertexDataSprite[1].texcoord = {0.0f, 0.0f};
   vertexDataSprite[1].normal = {0.0f, 0.0f, -1.0f};
+
   vertexDataSprite[2].position = {640.0f, 360.0f, 0.0f, 1.0f};
   vertexDataSprite[2].texcoord = {1.0f, 1.0f};
   vertexDataSprite[2].normal = {0.0f, 0.0f, -1.0f};
@@ -1459,9 +1462,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexDataSprite[3].position = {0.0f, 0.0f, 0.0f, 1.0f};
   vertexDataSprite[3].texcoord = {0.0f, 0.0f};
   vertexDataSprite[3].normal = {0.0f, 0.0f, -1.0f};
+
   vertexDataSprite[4].position = {640.0f, 0.0f, 0.0f, 1.0f};
   vertexDataSprite[4].texcoord = {1.0f, 0.0f};
   vertexDataSprite[4].normal = {0.0f, 0.0f, -1.0f};
+
   vertexDataSprite[5].position = {640.0f, 360.0f, 0.0f, 1.0f};
   vertexDataSprite[5].texcoord = {1.0f, 1.0f};
   vertexDataSprite[5].normal = {0.0f, 0.0f, -1.0f};
@@ -1550,6 +1555,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                         -700.0f, 700.0f);
 
       ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+      if (useMonsterBall) {
+        materialData->enableLighting = true;
+      } else {
+        materialData->enableLighting = false;
+      }
 
       ImGui::End();
 
@@ -1560,7 +1570,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         ImGui::ColorEdit4(
             "Color", reinterpret_cast<float *>(&directionalLightData->color));
 
-        // 方向（XYZ）
+        //// 方向（XYZ）
         ImGui::SliderFloat3(
             "Direction",
             reinterpret_cast<float *>(&directionalLightData->direction), -1.0f,
@@ -1614,7 +1624,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
       transform.rotate.y += 0.01f;
-      *wvpData = worldViewProjectionMatrix;
+      *wvpData = {worldViewProjectionMatrix, worldMatrix};
 
 #pragma endregion
 
