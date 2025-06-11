@@ -67,6 +67,10 @@ typedef struct Matrix4x4 {
   float m[4][4];
 } Matrix4x4;
 
+typedef struct Matrix3x3 {
+  float m[3][3];
+} Matrix3x3;
+
 typedef struct Transform {
   Vector3 scale;
   Vector3 rotate;
@@ -81,6 +85,8 @@ typedef struct TransformationMatrix {
 typedef struct Material {
   Vector4 color;
   int32_t enableLighting;
+  float padding[3];
+  Matrix4x4 uvTransform;
 } Material;
 
 typedef struct VertexData {
@@ -1211,6 +1217,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   materialResource->Map(0, nullptr, reinterpret_cast<void **>(&materialData));
   *materialData = Material{Vector4(1.0f, 1.0f, 1.0f, 1.0f), 1};
   materialData->enableLighting = true;
+  materialData->uvTransform = MakeIdentity4x4();
 
   ID3D12Resource *materialResourceSprite =
       CreateBufferResource(device, sizeof(Material));
@@ -1220,6 +1227,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   *materialDataSprite = Material{Vector4(1.0f, 1.0f, 1.0f, 1.0f), 0};
 
   materialDataSprite->enableLighting = false;
+  materialDataSprite->uvTransform = MakeIdentity4x4();
 
 #pragma endregion
 
@@ -1232,7 +1240,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       0, nullptr, reinterpret_cast<void **>(&directionalLightData));
 
   directionalLightData->color = {1.0f, 1.0f, 1.0f, 1.0f};
-  directionalLightData->direction = {0.0f, -1.0f, 0.0f};
+  directionalLightData->direction = {0.0f, 0.0f, -1.0f};
   directionalLightData->intensity = 1.0f;
 
 #pragma endregion
@@ -1538,6 +1546,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   Transform cameraTransform{
       {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -10.0f}};
 
+  Transform uvTransformSprite{
+      {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
+
   Matrix4x4 projectionMatrix = MakePerspectiveFovMatrix(
       0.45f, float(kCliantWidth) / float(kCliantHeight), 0.1f, 100.0f);
 
@@ -1637,6 +1648,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                            10.0f);
       }
       ImGui::End();
+      ImGui::Begin("UV Transform Sprite");
+      ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f,
+                        -10.0f, 10.0f);
+      ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f,
+                        10.0f);
+      ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+      ImGui::End();
 
       //   ImGui::ShowDemoWindow();
       ImGui::Render();
@@ -1646,6 +1664,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       ///================================
       /// 更新処理
       /// ==============================
+
+
+      Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
+
+      uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
+      uvTransformMatrix = Multiply(
+          uvTransformMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
+      materialDataSprite->uvTransform = uvTransformMatrix;
 
       /// Sprite用のWorldViewProjectionMatrixを作る
 
@@ -1678,6 +1704,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       *wvpData = {worldViewProjectionMatrix, worldMatrix};
 
 #pragma endregion
+
+
 
       ///================================
       /// 描画処理
@@ -1747,7 +1775,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           3, directionalLightResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
-
 
       commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
       commandList->DrawIndexedInstanced(sphereVertexCount, 1, 0, 0, 0);
