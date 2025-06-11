@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <sstream>
 #include <string.h>
 #include <strsafe.h>
 #include <vector>
@@ -99,6 +100,10 @@ struct DirectionalLight {
   Vector4 color;     // ライトの色
   Vector3 direction; // ライトの方向
   float intensity;   // ライトの強度
+};
+
+struct ModelData {
+  std::vector<VertexData> vertices;
 };
 
 #pragma endregion
@@ -468,6 +473,69 @@ GetGPUDscriptorHandle(ID3D12DescriptorHeap *descriptorHeap,
 
 #pragma endregion
 
+#pragma region Objファイルを読む関数
+
+ModelData LoadObjFile(const std::string &directoryPath,
+                      const std::string &filename) {
+
+  ModelData modelData;
+  std::vector<Vector4> positions;
+  std::vector<Vector3> normals;
+  std::vector<Vector2> texcoords;
+  std::string line;
+
+  std::ifstream file(directoryPath + "/" + filename);
+  assert(file.is_open());
+
+  while (std::getline(file, line)) {
+    std::string identifier;
+    std::istringstream s(line);
+    s >> identifier;
+
+    if (identifier == "v") {
+      Vector4 position;
+      s >> position.x >> position.y >> position.z;
+      position.w = 1.0f;
+      positions.push_back(position);
+    } else if (identifier == "vt") {
+      Vector2 texcoord;
+      s >> texcoord.x >> texcoord.y;
+      texcoords.push_back(texcoord);
+    } else if (identifier == "vn") {
+      Vector3 normal;
+      s >> normal.x >> normal.y >> normal.z;
+      normals.push_back(normal);
+    } else if (identifier == "f") {
+
+      // 三角形を作る
+      for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
+        std::string vertexDefinition;
+        s >> vertexDefinition;
+
+        // 頂点の定義は "v/t/n" の形式なので分割してIndexを取得する
+        std::istringstream v(vertexDefinition);
+
+        uint32_t elementIndices[3];
+        for (int32_t element = 0; element < 3; ++element) {
+          std::string index;
+          std::getline(v, index, '/');
+          elementIndices[element] = std::stoi(index);
+        }
+
+        // 要素へのIndexから実際の値を取得して、頂点を構築する。
+        Vector4 position = positions[elementIndices[0] - 1];
+        Vector2 texcoord = texcoords[elementIndices[1] - 1];
+        Vector3 normal = normals[elementIndices[2] - 1];
+        VertexData vertex = {position, texcoord, normal};
+        modelData.vertices.push_back(vertex);
+      }
+    }
+  }
+  file.close();
+  return modelData;
+}
+
+#pragma endregion
 #pragma endregion
 
 #pragma region 数学関数
@@ -1170,9 +1238,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
+  // モデル読み込み
+  ModelData modelData = LoadObjFile("resource", "plane.obj");
+
   // VertexResource を生成
-  ID3D12Resource *vertexResource =
-      CreateBufferResource(device, sizeof(VertexData) * sphereVertexCount);
+  ID3D12Resource *vertexResource = CreateBufferResource(
+      device, sizeof(VertexData) * modelData.vertices.size());
 
   // Spriteの矩形
   ID3D12Resource *vertexResourceSprite =
@@ -1270,7 +1341,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
   vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
 
-  vertexBufferView.SizeInBytes = sizeof(VertexData) * sphereVertexCount;
+  vertexBufferView.SizeInBytes =
+      UINT(sizeof(VertexData) * modelData.vertices.size());
 
   vertexBufferView.StrideInBytes = sizeof(VertexData);
 
@@ -1402,93 +1474,98 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   VertexData *vertexData = nullptr;
   vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
+  std::memcpy(vertexData, modelData.vertices.data(),
+              sizeof(VertexData) * modelData.vertices.size());
 
-  const uint32_t kSubdivision = 16;
-  const float kLonEvery = 2.0f * PI / float(kSubdivision);
-  const float kLatEvery = PI / float(kSubdivision);
-  const float epsilon = 1e-5f;
+  /*
+  //const uint32_t kSubdivision = 16;
+  //const float kLonEvery = 2.0f * PI / float(kSubdivision);
+  //const float kLatEvery = PI / float(kSubdivision);
+  //const float epsilon = 1e-5f;
 
-  for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
-    float lat = -PI / 2.0f + kLatEvery * latIndex;
+  //for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
+  //  float lat = -PI / 2.0f + kLatEvery * latIndex;
 
-    for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
-      uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
-      float lon = lonIndex * kLonEvery;
+  //  for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
+  //    uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
+  //    float lon = lonIndex * kLonEvery;
 
-      // 次の経度インデックス
-      uint32_t nextLonIndex = (lonIndex + 1) % kSubdivision;
+  //    // 次の経度インデックス
+  //    uint32_t nextLonIndex = (lonIndex + 1) % kSubdivision;
 
-      // U,V 座標計算（反転なし、継ぎ目対策あり）
-      float u0 = float(lonIndex) / float(kSubdivision);
-      float u1 = float(nextLonIndex) / float(kSubdivision);
-      if (nextLonIndex == 0) {
-        u1 = 1.0f - epsilon; // wrap 防止
-      }
+  //    // U,V 座標計算（反転なし、継ぎ目対策あり）
+  //    float u0 = float(lonIndex) / float(kSubdivision);
+  //    float u1 = float(nextLonIndex) / float(kSubdivision);
+  //    if (nextLonIndex == 0) {
+  //      u1 = 1.0f - epsilon; // wrap 防止
+  //    }
 
-      float v0 = 1.0f - float(latIndex) / float(kSubdivision);
-      float v1 = 1.0f - float(latIndex + 1) / float(kSubdivision);
+  //    float v0 = 1.0f - float(latIndex) / float(kSubdivision);
+  //    float v1 = 1.0f - float(latIndex + 1) / float(kSubdivision);
 
-      // 頂点 a
-      vertexData[start].position = {cosf(lat) * cosf(lon), sinf(lat),
-                                    cosf(lat) * sinf(lon), 1.0f};
-      vertexData[start].texcoord = {u0, v0};
-      vertexData[start].normal = {vertexData[start].position.x,
-                                  vertexData[start].position.y,
-                                  vertexData[start].position.z};
+  //    // 頂点 a
+  //    vertexData[start].position = {cosf(lat) * cosf(lon), sinf(lat),
+  //                                  cosf(lat) * sinf(lon), 1.0f};
+  //    vertexData[start].texcoord = {u0, v0};
+  //    vertexData[start].normal = {vertexData[start].position.x,
+  //                                vertexData[start].position.y,
+  //                                vertexData[start].position.z};
 
-      // 頂点 b
-      vertexData[start + 1].position = {
-          cosf(lat + kLatEvery) * cosf(lon), sinf(lat + kLatEvery),
-          cosf(lat + kLatEvery) * sinf(lon), 1.0f};
-      vertexData[start + 1].texcoord = {u0, v1};
-      vertexData[start + 1].normal = {vertexData[start + 1].position.x,
-                                      vertexData[start + 1].position.y,
-                                      vertexData[start + 1].position.z};
+  //    // 頂点 b
+  //    vertexData[start + 1].position = {
+  //        cosf(lat + kLatEvery) * cosf(lon), sinf(lat + kLatEvery),
+  //        cosf(lat + kLatEvery) * sinf(lon), 1.0f};
+  //    vertexData[start + 1].texcoord = {u0, v1};
+  //    vertexData[start + 1].normal = {vertexData[start + 1].position.x,
+  //                                    vertexData[start + 1].position.y,
+  //                                    vertexData[start + 1].position.z};
 
-      // 頂点 c
-      vertexData[start + 2].position = {
-          cosf(lat) * cosf(lon + kLonEvery), sinf(lat),
-          cosf(lat) * sinf(lon + kLonEvery), 1.0f};
-      vertexData[start + 2].texcoord = {u1, v0};
-      vertexData[start + 2].normal = {vertexData[start + 2].position.x,
-                                      vertexData[start + 2].position.y,
-                                      vertexData[start + 2].position.z};
+  //    // 頂点 c
+  //    vertexData[start + 2].position = {
+  //        cosf(lat) * cosf(lon + kLonEvery), sinf(lat),
+  //        cosf(lat) * sinf(lon + kLonEvery), 1.0f};
+  //    vertexData[start + 2].texcoord = {u1, v0};
+  //    vertexData[start + 2].normal = {vertexData[start + 2].position.x,
+  //                                    vertexData[start + 2].position.y,
+  //                                    vertexData[start + 2].position.z};
 
-      // 頂点 d
-      vertexData[start + 3] = vertexData[start + 1]; // b
+  //    // 頂点 d
+  //    vertexData[start + 3] = vertexData[start + 1]; // b
 
-      vertexData[start + 4].position = {
-          cosf(lat + kLatEvery) * cosf(lon + kLonEvery), sinf(lat + kLatEvery),
-          cosf(lat + kLatEvery) * sinf(lon + kLonEvery), 1.0f};
-      vertexData[start + 4].texcoord = {u1, v1};
-      vertexData[start + 4].normal = {vertexData[start + 4].position.x,
-                                      vertexData[start + 4].position.y,
-                                      vertexData[start + 4].position.z};
+  //    vertexData[start + 4].position = {
+  //        cosf(lat + kLatEvery) * cosf(lon + kLonEvery), sinf(lat +
+  kLatEvery),
+  //        cosf(lat + kLatEvery) * sinf(lon + kLonEvery), 1.0f};
+  //    vertexData[start + 4].texcoord = {u1, v1};
+  //    vertexData[start + 4].normal = {vertexData[start + 4].position.x,
+  //                                    vertexData[start + 4].position.y,
+  //                                    vertexData[start + 4].position.z};
 
-      vertexData[start + 5] = vertexData[start + 2]; // c
-    }
-  }
+  //    vertexData[start + 5] = vertexData[start + 2]; // c
+  //  }
+  //}
+  */
 
-  uint32_t *indexData = nullptr;
-  indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
-  uint32_t index = 0;
-  for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
-    for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
-      uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
-      // a
-      indexData[index++] = start + 0;
-      // b
-      indexData[index++] = start + 1;
-      // c
-      indexData[index++] = start + 2;
-      // b
-      indexData[index++] = start + 1;
-      // d
-      indexData[index++] = start + 3;
-      // c
-      indexData[index++] = start + 2;
-    }
-  }
+  // uint32_t *indexData = nullptr;
+  // indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
+  // uint32_t index = 0;
+  // for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
+  //   for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
+  //     uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
+  //     // a
+  //     indexData[index++] = start + 0;
+  //     // b
+  //     indexData[index++] = start + 1;
+  //     // c
+  //     indexData[index++] = start + 2;
+  //     // b
+  //     indexData[index++] = start + 1;
+  //     // d
+  //     indexData[index++] = start + 3;
+  //     // c
+  //     indexData[index++] = start + 2;
+  //   }
+  // }
 
   /// Spriteの頂点データ
 
@@ -1588,75 +1665,65 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       ImGui_ImplWin32_NewFrame();
       ImGui::NewFrame();
 
-      // 三角形の色を変える
-      ImGui::Begin("Triangle Color");
-      ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
-      ImGui::End();
+      ImGui::Begin("Settings");
 
-      // Transformの操作
-      ImGui::Begin("SRT Controller");
-
-      // スケール操作
-      ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
-
-      // 回転操作（ラジアン or 角度変換）
-      ImGui::DragFloat3("Rotate (rad)", &transform.rotate.x, 0.01f);
-      // 角度でやりたい場合は degree ⇄ rad 変換すればOK
-
-      // 位置操作
-      ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f);
-
-      // --- 矩形のSRT ---
-      ImGui::Text("Sprite Transform");
-
-      ImGui::DragFloat3("Scale##Sprite", &transformSprite.scale.x, 0.1f, 0.1f,
-                        10.0f);
-      ImGui::DragFloat3("Rotate (rad)##Sprite", &transformSprite.rotate.x,
-                        0.01f, -3.14f, 3.14f);
-      ImGui::DragFloat3("Translate##Sprite", &transformSprite.translate.x, 1.0f,
-                        -700.0f, 700.0f);
-
-      ImGui::Checkbox("useMonsterBall", &useMonsterBall);
-      if (useMonsterBall) {
-        materialData->enableLighting = true;
-      } else {
-        materialData->enableLighting = false;
+      // === Triangle Color ===
+      if (ImGui::CollapsingHeader("Triangle Color")) {
+        ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
       }
 
-      ImGui::End();
+      // === Transform (SRT Controller) ===
+      if (ImGui::CollapsingHeader("SphereTransform")) {
+        ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
+        ImGui::SliderAngle("RotateX", &transform.rotate.x);
+        ImGui::SliderAngle("RotateY", &transform.rotate.y);
+        ImGui::SliderAngle("RotateZ", &transform.rotate.z);
+        ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f);
+        ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+        materialData->enableLighting = useMonsterBall;
+      }
 
-      if (ImGui::Begin("Light Settings")) {
+      // === Light Settings ===
+      if (ImGui::CollapsingHeader("Light Settings")) {
         ImGui::Text("Directional Light");
 
-        // 色（RGB）
         ImGui::ColorEdit4(
             "Color", reinterpret_cast<float *>(&directionalLightData->color));
-
-        //// 方向（XYZ）
         ImGui::SliderFloat3(
             "Direction",
             reinterpret_cast<float *>(&directionalLightData->direction), -1.0f,
             1.0f);
 
+        // Normalize direction
         Vector3 &v = directionalLightData->direction;
         XMVECTOR dir = XMVectorSet(v.x, v.y, v.z, 0.0f);
         dir = XMVector3Normalize(dir);
         XMStoreFloat3(reinterpret_cast<XMFLOAT3 *>(&v), dir);
 
-        // 強さ（Intensity）
         ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f,
                            10.0f);
       }
-      ImGui::End();
-      ImGui::Begin("UV Transform Sprite");
-      ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f,
-                        -10.0f, 10.0f);
-      ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f,
-                        10.0f);
-      ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
-      ImGui::End();
 
-      //   ImGui::ShowDemoWindow();
+      // === Sprite Transform ===
+      if (ImGui::CollapsingHeader("Sprite Transform")) {
+        ImGui::DragFloat3("Scale##Sprite", &transformSprite.scale.x, 0.1f, 0.1f,
+                          10.0f);
+        ImGui::DragFloat3("Rotate (rad)##Sprite", &transformSprite.rotate.x,
+                          0.01f, -3.14f, 3.14f);
+        ImGui::DragFloat3("Translate##Sprite", &transformSprite.translate.x,
+                          1.0f, -700.0f, 700.0f);
+      }
+
+      // === UV Transform Sprite ===
+      if (ImGui::CollapsingHeader("UV Transform Sprite")) {
+        ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f,
+                          -10.0f, 10.0f);
+        ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f,
+                          10.0f);
+        ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+      }
+
+      ImGui::End();
       ImGui::Render();
 
 #endif
@@ -1665,10 +1732,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       /// 更新処理
       /// ==============================
 
-
       Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
 
-      uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
+      uvTransformMatrix = Multiply(
+          uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
       uvTransformMatrix = Multiply(
           uvTransformMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
       materialDataSprite->uvTransform = uvTransformMatrix;
@@ -1700,12 +1767,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       Matrix4x4 worldViewProjectionMatrix =
           Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
-      transform.rotate.y += 0.01f;
+      //   transform.rotate.y += 0.01f;
       *wvpData = {worldViewProjectionMatrix, worldMatrix};
 
 #pragma endregion
-
-
 
       ///================================
       /// 描画処理
@@ -1766,7 +1831,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
       commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-      commandList->IASetIndexBuffer(&indexBufferView);
+      //   commandList->IASetIndexBuffer(&indexBufferView);
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
@@ -1777,7 +1842,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
       commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
-      commandList->DrawIndexedInstanced(sphereVertexCount, 1, 0, 0, 0);
+      commandList->DrawIndexedInstanced(UINT(modelData.vertices.size()), 1, 0,
+                                        0, 0);
 
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResourceSprite->GetGPUVirtualAddress());
