@@ -494,7 +494,9 @@ ModelData LoadObjFile(const std::string &directoryPath,
 
     if (identifier == "v") {
       Vector4 position;
+
       s >> position.x >> position.y >> position.z;
+      //    position.x *= -1.0f;
       position.w = 1.0f;
       positions.push_back(position);
     } else if (identifier == "vt") {
@@ -503,9 +505,13 @@ ModelData LoadObjFile(const std::string &directoryPath,
       texcoords.push_back(texcoord);
     } else if (identifier == "vn") {
       Vector3 normal;
+
       s >> normal.x >> normal.y >> normal.z;
+      //   normal.x *= -1.0f;
       normals.push_back(normal);
     } else if (identifier == "f") {
+
+      //  VertexData triangle[3];
 
       // 三角形を作る
       for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
@@ -526,9 +532,14 @@ ModelData LoadObjFile(const std::string &directoryPath,
         Vector4 position = positions[elementIndices[0] - 1];
         Vector2 texcoord = texcoords[elementIndices[1] - 1];
         Vector3 normal = normals[elementIndices[2] - 1];
+        // triangle[faceVertex] = {position, texcoord, normal};
+
         VertexData vertex = {position, texcoord, normal};
         modelData.vertices.push_back(vertex);
       }
+      // modelData.vertices.push_back(triangle[2]);
+      // modelData.vertices.push_back(triangle[1]);
+      // modelData.vertices.push_back(triangle[0]);
     }
   }
   file.close();
@@ -1250,6 +1261,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       CreateBufferResource(device, sizeof(VertexData) * 6);
 
 #pragma endregion
+
 #pragma region IndexResourceを生成する
 
   ID3D12Resource *indexResource = CreateBufferResource(
@@ -1841,9 +1853,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
-      commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
-      commandList->DrawIndexedInstanced(UINT(modelData.vertices.size()), 1, 0,
-                                        0, 0);
+      commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
+  //    commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResourceSprite->GetGPUVirtualAddress());
@@ -1853,8 +1864,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->IASetIndexBuffer(&indexBufferViewSprite);
-      commandList->DrawInstanced(6, 1, 0, 0);
-      commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+      //  commandList->DrawInstanced(6, 1, 0, 0);
+      // commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
