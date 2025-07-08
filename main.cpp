@@ -496,7 +496,9 @@ ModelData LoadObjFile(const std::string &directoryPath,
       Vector4 position;
 
       s >> position.x >> position.y >> position.z;
-      //    position.x *= -1.0f;
+      std::swap(position.y, position.z);
+      position.x *= -1.0f;
+      position.z *= -1.0f;
       position.w = 1.0f;
       positions.push_back(position);
     } else if (identifier == "vt") {
@@ -507,11 +509,11 @@ ModelData LoadObjFile(const std::string &directoryPath,
       Vector3 normal;
 
       s >> normal.x >> normal.y >> normal.z;
-      //   normal.x *= -1.0f;
+      normal.x *= -1.0f;
       normals.push_back(normal);
     } else if (identifier == "f") {
 
-      //  VertexData triangle[3];
+      VertexData triangle[3];
 
       // 三角形を作る
       for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
@@ -532,14 +534,14 @@ ModelData LoadObjFile(const std::string &directoryPath,
         Vector4 position = positions[elementIndices[0] - 1];
         Vector2 texcoord = texcoords[elementIndices[1] - 1];
         Vector3 normal = normals[elementIndices[2] - 1];
-        // triangle[faceVertex] = {position, texcoord, normal};
+        triangle[faceVertex] = {position, texcoord, normal};
 
-        VertexData vertex = {position, texcoord, normal};
-        modelData.vertices.push_back(vertex);
+        // VertexData vertex = {position, texcoord, normal};
+        // modelData.vertices.push_back(vertex);
       }
-      // modelData.vertices.push_back(triangle[2]);
-      // modelData.vertices.push_back(triangle[1]);
-      // modelData.vertices.push_back(triangle[0]);
+      modelData.vertices.push_back(triangle[2]);
+      modelData.vertices.push_back(triangle[1]);
+      modelData.vertices.push_back(triangle[0]);
     }
   }
   file.close();
@@ -1623,8 +1625,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region 変数宣言
   Transform transform{
-      {1.0f, 1.0f, 1.0f},
-      {0.0f, 0.0f, 0.0f},
+      {0.5f, 1.0f, 1.0f},
+      {0.0f, 0.0f, 90.0f},
       {0.0f, 0.0f, 0.0f},
 
   };
@@ -1632,8 +1634,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   Transform transformSprite{
       {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
 
-  Transform cameraTransform{
-      {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -10.0f}};
+  Transform cameraTransform{{1.0f, 1.0f, 1.0f},
+                            {0.0f, 0.0f, 0.0f},
+                            {0.0f, 4.0f, -18.0f}};
 
   Transform uvTransformSprite{
       {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f, 0.0f}, {0.0f, 0.0f, 0.0f}};
@@ -1684,13 +1687,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
         ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
       }
 
+      if (ImGui::CollapsingHeader("CameraTransform")) {
+        ImGui::DragFloat3("CameraTranslate", &cameraTransform.translate.x,
+                          0.1f);
+        ImGui::SliderAngle("CameraRotateX", &cameraTransform.rotate.x);
+        ImGui::SliderAngle("CameraRotateY", &cameraTransform.rotate.y);
+        ImGui::SliderAngle("CameraRotateZ", &cameraTransform.rotate.z);
+      }
+
       // === Transform (SRT Controller) ===
       if (ImGui::CollapsingHeader("SphereTransform")) {
-        ImGui::DragFloat3("Scale", &transform.scale.x, 0.1f);
         ImGui::SliderAngle("RotateX", &transform.rotate.x);
         ImGui::SliderAngle("RotateY", &transform.rotate.y);
         ImGui::SliderAngle("RotateZ", &transform.rotate.z);
-        ImGui::DragFloat3("Translate", &transform.translate.x, 0.1f);
         ImGui::Checkbox("useMonsterBall", &useMonsterBall);
         materialData->enableLighting = useMonsterBall;
       }
@@ -1766,7 +1775,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       *transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
 
-#pragma region 三角形の回転
+#pragma region 中心のモデル
 
       Matrix4x4 worldMatrix = MakeAffineMatrix(
           transform.scale, transform.rotate, transform.translate);
@@ -1854,7 +1863,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
 
       commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
-  //    commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+      //    commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResourceSprite->GetGPUVirtualAddress());
