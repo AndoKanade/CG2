@@ -1400,93 +1400,56 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region 頂点データの更新
 
-  VertexData *vertexData = nullptr;
-  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
-
   const uint32_t kSubdivision = 16;
   const float kLonEvery = 2.0f * PI / float(kSubdivision);
   const float kLatEvery = PI / float(kSubdivision);
   const float epsilon = 1e-5f;
 
-  for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
+  VertexData *vertexData = nullptr;
+  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
+
+  // 頂点生成（(kSubdivision + 1)^2 個）
+  for (uint32_t latIndex = 0; latIndex <= kSubdivision; ++latIndex) {
     float lat = -PI / 2.0f + kLatEvery * latIndex;
+    float v = 1.0f - float(latIndex) / float(kSubdivision);
 
-    for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
-      uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
+    for (uint32_t lonIndex = 0; lonIndex <= kSubdivision; ++lonIndex) {
       float lon = lonIndex * kLonEvery;
-
-      // 次の経度インデックス
-      uint32_t nextLonIndex = (lonIndex + 1) % kSubdivision;
-
-      // U,V 座標計算（反転なし、継ぎ目対策あり）
-      float u0 = float(lonIndex) / float(kSubdivision);
-      float u1 = float(nextLonIndex) / float(kSubdivision);
-      if (nextLonIndex == 0) {
-        u1 = 1.0f - epsilon; // wrap 防止
+      float u = float(lonIndex) / float(kSubdivision);
+      if (lonIndex == kSubdivision) {
+        u = 1.0f - epsilon; // wrap防止
       }
 
-      float v0 = 1.0f - float(latIndex) / float(kSubdivision);
-      float v1 = 1.0f - float(latIndex + 1) / float(kSubdivision);
+      Vector3 pos = {cosf(lat) * cosf(lon), sinf(lat), cosf(lat) * sinf(lon)};
 
-      // 頂点 a
-      vertexData[start].position = {cosf(lat) * cosf(lon), sinf(lat),
-                                    cosf(lat) * sinf(lon), 1.0f};
-      vertexData[start].texcoord = {u0, v0};
-      vertexData[start].normal = {vertexData[start].position.x,
-                                  vertexData[start].position.y,
-                                  vertexData[start].position.z};
+      uint32_t vertexIndex = latIndex * (kSubdivision + 1) + lonIndex;
 
-      // 頂点 b
-      vertexData[start + 1].position = {
-          cosf(lat + kLatEvery) * cosf(lon), sinf(lat + kLatEvery),
-          cosf(lat + kLatEvery) * sinf(lon), 1.0f};
-      vertexData[start + 1].texcoord = {u0, v1};
-      vertexData[start + 1].normal = {vertexData[start + 1].position.x,
-                                      vertexData[start + 1].position.y,
-                                      vertexData[start + 1].position.z};
-
-      // 頂点 c
-      vertexData[start + 2].position = {
-          cosf(lat) * cosf(lon + kLonEvery), sinf(lat),
-          cosf(lat) * sinf(lon + kLonEvery), 1.0f};
-      vertexData[start + 2].texcoord = {u1, v0};
-      vertexData[start + 2].normal = {vertexData[start + 2].position.x,
-                                      vertexData[start + 2].position.y,
-                                      vertexData[start + 2].position.z};
-
-      // 頂点 d
-      vertexData[start + 3] = vertexData[start + 1]; // b
-
-      vertexData[start + 4].position = {
-          cosf(lat + kLatEvery) * cosf(lon + kLonEvery), sinf(lat + kLatEvery),
-          cosf(lat + kLatEvery) * sinf(lon + kLonEvery), 1.0f};
-      vertexData[start + 4].texcoord = {u1, v1};
-      vertexData[start + 4].normal = {vertexData[start + 4].position.x,
-                                      vertexData[start + 4].position.y,
-                                      vertexData[start + 4].position.z};
-
-      vertexData[start + 5] = vertexData[start + 2]; // c
+      vertexData[vertexIndex].position = {pos.x, pos.y, pos.z, 1.0f};
+      vertexData[vertexIndex].normal = pos;
+      vertexData[vertexIndex].texcoord = {u, v};
     }
   }
 
   uint32_t *indexData = nullptr;
   indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
+
   uint32_t index = 0;
   for (uint32_t latIndex = 0; latIndex < kSubdivision; ++latIndex) {
     for (uint32_t lonIndex = 0; lonIndex < kSubdivision; ++lonIndex) {
-      uint32_t start = (latIndex * kSubdivision + lonIndex) * 6;
-      // a
-      indexData[index++] = start + 0;
-      // b
-      indexData[index++] = start + 1;
-      // c
-      indexData[index++] = start + 2;
-      // b
-      indexData[index++] = start + 1;
-      // d
-      indexData[index++] = start + 3;
-      // c
-      indexData[index++] = start + 2;
+      uint32_t i0 = latIndex * (kSubdivision + 1) + lonIndex;
+      uint32_t i1 = i0 + 1;
+      uint32_t i2 = i0 + (kSubdivision + 1);
+      uint32_t i3 = i2 + 1;
+
+      // 三角形 1
+      indexData[index++] = i0;
+      indexData[index++] = i2;
+      indexData[index++] = i1;
+
+      // 三角形 2
+      indexData[index++] = i1;
+      indexData[index++] = i2;
+      indexData[index++] = i3;
     }
   }
 
@@ -1496,41 +1459,38 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   vertexResourceSprite->Map(0, nullptr,
                             reinterpret_cast<void **>(&vertexDataSprite));
 
-  vertexDataSprite[0].position = {0.0f, 360.0f, 0.0f, 1.0f};
-  vertexDataSprite[0].texcoord = {0.0f, 1.0f};
+  // 矩形の4頂点（左上 → 左下 → 右上 → 右下）
+  vertexDataSprite[0].position = {0.0f, 0.0f, 0.0f, 1.0f}; // 左上
+  vertexDataSprite[0].texcoord = {0.0f, 0.0f};
   vertexDataSprite[0].normal = {0.0f, 0.0f, -1.0f};
 
-  vertexDataSprite[1].position = {0.0f, 0.0f, 0.0f, 1.0f};
-  vertexDataSprite[1].texcoord = {0.0f, 0.0f};
+  vertexDataSprite[1].position = {0.0f, 360.0f, 0.0f, 1.0f}; // 左下
+  vertexDataSprite[1].texcoord = {0.0f, 1.0f};
   vertexDataSprite[1].normal = {0.0f, 0.0f, -1.0f};
 
-  vertexDataSprite[2].position = {640.0f, 360.0f, 0.0f, 1.0f};
-  vertexDataSprite[2].texcoord = {1.0f, 1.0f};
+  vertexDataSprite[2].position = {640.0f, 0.0f, 0.0f, 1.0f}; // 右上
+  vertexDataSprite[2].texcoord = {1.0f, 0.0f};
   vertexDataSprite[2].normal = {0.0f, 0.0f, -1.0f};
 
-  vertexDataSprite[3].position = {0.0f, 0.0f, 0.0f, 1.0f};
-  vertexDataSprite[3].texcoord = {0.0f, 0.0f};
+  vertexDataSprite[3].position = {640.0f, 360.0f, 0.0f, 1.0f}; // 右下
+  vertexDataSprite[3].texcoord = {1.0f, 1.0f};
   vertexDataSprite[3].normal = {0.0f, 0.0f, -1.0f};
-
-  vertexDataSprite[4].position = {640.0f, 0.0f, 0.0f, 1.0f};
-  vertexDataSprite[4].texcoord = {1.0f, 0.0f};
-  vertexDataSprite[4].normal = {0.0f, 0.0f, -1.0f};
-
-  vertexDataSprite[5].position = {640.0f, 360.0f, 0.0f, 1.0f};
-  vertexDataSprite[5].texcoord = {1.0f, 1.0f};
-  vertexDataSprite[5].normal = {0.0f, 0.0f, -1.0f};
 
 #pragma endregion
 
   uint32_t *indexDataSprite = nullptr;
   indexResouorceSprite->Map(0, nullptr,
                             reinterpret_cast<void **>(&indexDataSprite));
-  indexDataSprite[0] = 0; // a
-  indexDataSprite[1] = 1; // b
-  indexDataSprite[2] = 2; // c
-  indexDataSprite[3] = 1; // b
-  indexDataSprite[4] = 3; // d
-  indexDataSprite[5] = 2; // c
+
+  // 三角形1: 左上 → 左下 → 右上
+  indexDataSprite[0] = 0;
+  indexDataSprite[1] = 1;
+  indexDataSprite[2] = 2;
+
+  // 三角形2: 左下 → 右下 → 右上
+  indexDataSprite[3] = 1;
+  indexDataSprite[4] = 3;
+  indexDataSprite[5] = 2;
 
 #pragma region 変数宣言
   Transform transform{
@@ -1665,10 +1625,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       /// 更新処理
       /// ==============================
 
-
       Matrix4x4 uvTransformMatrix = MakeScaleMatrix(uvTransformSprite.scale);
 
-      uvTransformMatrix = Multiply(uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
+      uvTransformMatrix = Multiply(
+          uvTransformMatrix, MakeRotateZMatrix(uvTransformSprite.rotate.z));
       uvTransformMatrix = Multiply(
           uvTransformMatrix, MakeTranslateMatrix(uvTransformSprite.translate));
       materialDataSprite->uvTransform = uvTransformMatrix;
@@ -1704,8 +1664,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       *wvpData = {worldViewProjectionMatrix, worldMatrix};
 
 #pragma endregion
-
-
 
       ///================================
       /// 描画処理
@@ -1764,9 +1722,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       // 球の描画：Material, WVP, Light を正しくセット
       commandList->IASetVertexBuffers(0, 1, &vertexBufferView);
-      commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
       commandList->IASetIndexBuffer(&indexBufferView);
+      commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
@@ -1775,19 +1732,19 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           3, directionalLightResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
+      uint32_t indexCount = kSubdivision * kSubdivision * 6;
+      commandList->DrawIndexedInstanced(indexCount, 1, 0, 0, 0);
 
-      commandList->DrawInstanced(sphereVertexCount, 1, 0, 0);
-      commandList->DrawIndexedInstanced(sphereVertexCount, 1, 0, 0, 0);
-
+      commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
+      commandList->IASetIndexBuffer(&indexBufferViewSprite);
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResourceSprite->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-      commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
-      commandList->IASetIndexBuffer(&indexBufferViewSprite);
-      commandList->DrawInstanced(6, 1, 0, 0);
+
+
       commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
