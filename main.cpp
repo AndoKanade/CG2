@@ -1189,13 +1189,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   indexBufferView.SizeInBytes = sizeof(uint32_t) * sphereVertexCount;
   indexBufferView.Format = DXGI_FORMAT_R32_UINT;
 
-  ID3D12Resource *indexResouorceSprite =
+  ID3D12Resource *indexResourceSprite =
       CreateBufferResource(device, sizeof(uint32_t) * 6);
 
   D3D12_INDEX_BUFFER_VIEW indexBufferViewSprite{};
 
   indexBufferViewSprite.BufferLocation =
-      indexResouorceSprite->GetGPUVirtualAddress();
+      indexResourceSprite->GetGPUVirtualAddress();
   indexBufferViewSprite.SizeInBytes = sizeof(uint32_t) * 6;
   indexBufferViewSprite.Format = DXGI_FORMAT_R32_UINT;
 
@@ -1262,6 +1262,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   transformationMatrixResourceSprite->Map(
       0, nullptr, reinterpret_cast<void **>(&transformationMatrixDataSprite));
   *transformationMatrixDataSprite = MakeIdentity4x4();
+  transformationMatrixResourceSprite->Unmap(0, nullptr);
 
 #pragma endregion
 
@@ -1453,7 +1454,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
     }
   }
 
-  /// Spriteの頂点データ
+  // Spriteの頂点データ
 
   VertexData *vertexDataSprite = nullptr;
   vertexResourceSprite->Map(0, nullptr,
@@ -1479,8 +1480,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma endregion
 
   uint32_t *indexDataSprite = nullptr;
-  indexResouorceSprite->Map(0, nullptr,
-                            reinterpret_cast<void **>(&indexDataSprite));
+  indexResourceSprite->Map(0, nullptr,
+                           reinterpret_cast<void **>(&indexDataSprite));
 
   // 三角形1: 左上 → 左下 → 右上
   indexDataSprite[0] = 0;
@@ -1546,6 +1547,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #ifdef _DEBUG
       ImGui_ImplDX12_NewFrame();
       ImGui_ImplWin32_NewFrame();
+      ImGui::NewFrame();
+
       ImGui::Begin("Settings");
 
       // === Triangle Color ===
@@ -1636,10 +1639,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       Matrix4x4 projectionMatrixSprite = MakeOrthographicMatrix(
           0.0f, 0.0f, float(kCliantWidth), float(kCliantHeight), 0.0f, 100.0f);
       Matrix4x4 worldViewProjectionMatrixSprite =
-          Multiply(worldMatrixSprite,
-                   Multiply(viewMatrixSprite, projectionMatrixSprite));
-
+          Multiply(projectionMatrixSprite,
+                   Multiply(viewMatrixSprite, worldMatrixSprite));
       *transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
+
 
 #pragma region 三角形の回転
 
@@ -1731,13 +1734,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->IASetIndexBuffer(&indexBufferViewSprite);
+      commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResourceSprite->GetGPUVirtualAddress());
       commandList->SetGraphicsRootConstantBufferView(
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
-
-      commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
       commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
@@ -1841,7 +1844,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   depthStencilResource->Release();
   materialResourceSprite->Release();
   materialResource->Release();
-  indexResouorceSprite->Release();
+  indexResourceSprite->Release();
   indexResource->Release();
   vertexResourceSprite->Release();
   vertexResource->Release();
