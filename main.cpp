@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <sstream>
 #include <string.h>
 #include <strsafe.h>
 #include <vector>
@@ -52,7 +53,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
 #pragma region 構造体
 typedef struct Vector4 {
-  float w, x, y, z;
+  float x, y, z, w;
 } Vector4;
 
 typedef struct Vector3 {
@@ -495,24 +496,20 @@ ModelData LoadObjFile(const std::string &directoryPath,
       Vector4 position;
 
       s >> position.x >> position.y >> position.z;
-      std::swap(position.y, position.z);
-      //   position.x *= -1.0f;
-      //   position.z *= -1.0f;
+
       position.w = 1.0f;
       positions.push_back(position);
+
     } else if (identifier == "vt") {
       Vector2 texcoord;
       s >> texcoord.x >> texcoord.y;
       texcoords.push_back(texcoord);
     } else if (identifier == "vn") {
       Vector3 normal;
-
       s >> normal.x >> normal.y >> normal.z;
-      normal.x *= -1.0f;
+
       normals.push_back(normal);
     } else if (identifier == "f") {
-
-   //   VertexData triangle[3];
 
       // 三角形を作る
       for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
@@ -533,14 +530,10 @@ ModelData LoadObjFile(const std::string &directoryPath,
         Vector4 position = positions[elementIndices[0] - 1];
         Vector2 texcoord = texcoords[elementIndices[1] - 1];
         Vector3 normal = normals[elementIndices[2] - 1];
-        //        triangle[faceVertex] = {position, texcoord, normal};
 
         VertexData vertex = {position, texcoord, normal};
         modelData.vertices.push_back(vertex);
       }
-      // modelData.vertices.push_back(triangle[2]);
-      // modelData.vertices.push_back(triangle[1]);
-      // modelData.vertices.push_back(triangle[0]);
     }
   }
   file.close();
@@ -1354,7 +1347,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   D3D12_VERTEX_BUFFER_VIEW vertexBufferView{};
   vertexBufferView.BufferLocation = vertexResource->GetGPUVirtualAddress();
 
-  vertexBufferView.SizeInBytes = UINT(sizeof(VertexData) * modelData.vertices.size());
+  vertexBufferView.SizeInBytes =
+      UINT(sizeof(VertexData) * modelData.vertices.size());
 
   vertexBufferView.StrideInBytes = sizeof(VertexData);
 
@@ -1495,6 +1489,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   std::memcpy(vertexData, modelData.vertices.data(),
               sizeof(VertexData) * modelData.vertices.size());
 
+  /*
   //// 頂点生成（(kSubdivision + 1)^2 個）
   // for (uint32_t latIndex = 0; latIndex <= kSubdivision; ++latIndex) {
   //   float lat = -PI / 2.0f + kLatEvery * latIndex;
@@ -1540,8 +1535,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   //  }
   //}
 
-  // Spriteの頂点データ
+  */
 
+#pragma region 画像データの頂点データ
   VertexData *vertexDataSprite = nullptr;
   vertexResourceSprite->Map(0, nullptr,
                             reinterpret_cast<void **>(&vertexDataSprite));
@@ -1571,13 +1567,14 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 三角形1: 左上 → 左下 → 右上
   indexDataSprite[0] = 0;
-  indexDataSprite[1] = 1;
-  indexDataSprite[2] = 2;
+  indexDataSprite[1] = 2;
+  indexDataSprite[2] = 1;
 
   // 三角形2: 左下 → 右下 → 右上
   indexDataSprite[3] = 1;
-  indexDataSprite[4] = 3;
-  indexDataSprite[5] = 2;
+  indexDataSprite[4] = 2;
+  indexDataSprite[5] = 3;
+#pragma endregion
 
 #pragma region 変数宣言
   Transform transform{
@@ -1742,7 +1739,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       Matrix4x4 worldViewProjectionMatrix =
           Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
- //     transform.rotate.y += 0.01f;
+      //     transform.rotate.y += 0.01f;
       *wvpData = {worldViewProjectionMatrix, worldMatrix};
 
 #pragma endregion
@@ -1814,8 +1811,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           3, directionalLightResource->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
-//     uint32_t indexCount = kSubdivision * kSubdivision * 6;
-      commandList->DrawIndexedInstanced(UINT(modelData.vertices.size()), 1, 0, 0, 0);
+      //     uint32_t indexCount = kSubdivision * kSubdivision * 6;
+      commandList->DrawIndexedInstanced(UINT(modelData.vertices.size()), 1, 0,
+                                        0, 0);
 
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->IASetIndexBuffer(&indexBufferViewSprite);
@@ -1827,7 +1825,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-      commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+      //  commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList);
 
