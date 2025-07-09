@@ -1485,13 +1485,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // 三角形1: 左上 → 左下 → 右上
   indexDataSprite[0] = 0;
-  indexDataSprite[1] = 1;
-  indexDataSprite[2] = 2;
+  indexDataSprite[1] = 2;
+  indexDataSprite[2] = 1;
 
   // 三角形2: 左下 → 右下 → 右上
   indexDataSprite[3] = 1;
-  indexDataSprite[4] = 3;
-  indexDataSprite[5] = 2;
+  indexDataSprite[4] = 2;
+  indexDataSprite[5] = 3;
 
 #pragma region 変数宣言
   Transform transform{
@@ -1643,7 +1643,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                    Multiply(viewMatrixSprite, worldMatrixSprite));
       *transformationMatrixDataSprite = worldViewProjectionMatrixSprite;
 
-
 #pragma region 三角形の回転
 
       Matrix4x4 worldMatrix = MakeAffineMatrix(
@@ -1734,7 +1733,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->IASetIndexBuffer(&indexBufferViewSprite);
-      commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
       commandList->SetGraphicsRootConstantBufferView(
           0, materialResourceSprite->GetGPUVirtualAddress());
