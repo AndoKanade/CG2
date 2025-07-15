@@ -23,6 +23,8 @@
 #include "externals/imgui/imgui.h"
 #include "externals/imgui/imgui_impl_dx12.h"
 #include "externals/imgui/imgui_impl_win32.h"
+#include <iostream>
+#include <map>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
                                                              UINT msg,
@@ -52,18 +54,53 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 }
 
 #pragma region 構造体
-typedef struct Vector4 {
-  float x, y, z, w;
-} Vector4;
-
-typedef struct Vector3 {
-  float x, y, z;
-} Vector3;
-
-typedef struct Vector2 {
+struct Vector2 {
   float x, y;
-} Vector2;
+};
 
+inline bool operator<(const Vector2 &a, const Vector2 &b) {
+  if (a.x != b.x)
+    return a.x < b.x;
+  return a.y < b.y;
+}
+
+inline bool operator!=(const Vector2 &a, const Vector2 &b) {
+  return a.x != b.x || a.y != b.y;
+}
+
+struct Vector3 {
+  float x, y, z;
+};
+
+inline bool operator<(const Vector3 &a, const Vector3 &b) {
+  if (a.x != b.x)
+    return a.x < b.x;
+  if (a.y != b.y)
+    return a.y < b.y;
+  return a.z < b.z;
+}
+
+inline bool operator!=(const Vector3 &a, const Vector3 &b) {
+  return a.x != b.x || a.y != b.y || a.z != b.z;
+}
+
+struct Vector4 {
+  float x, y, z, w;
+};
+
+inline bool operator<(const Vector4 &a, const Vector4 &b) {
+  if (a.x != b.x)
+    return a.x < b.x;
+  if (a.y != b.y)
+    return a.y < b.y;
+  if (a.z != b.z)
+    return a.z < b.z;
+  return a.w < b.w;
+}
+
+inline bool operator!=(const Vector4 &a, const Vector4 &b) {
+  return a.x != b.x || a.y != b.y || a.z != b.z || a.w != b.w;
+}
 typedef struct Matrix4x4 {
   float m[4][4];
 } Matrix4x4;
@@ -90,11 +127,21 @@ typedef struct Material {
   Matrix4x4 uvTransform;
 } Material;
 
-typedef struct VertexData {
+struct VertexData {
   Vector4 position;
   Vector2 texcoord;
   Vector3 normal;
-} VertexData;
+
+  bool operator<(const VertexData &other) const {
+    if (position != other.position)
+      return position < other.position;
+    if (texcoord != other.texcoord)
+      return texcoord < other.texcoord;
+    if (normal != other.normal)
+      return normal < other.normal;
+    return false;
+  }
+};
 
 struct DirectionalLight {
   Vector4 color;     // ライトの色
@@ -104,6 +151,7 @@ struct DirectionalLight {
 
 struct ModelData {
   std::vector<VertexData> vertices;
+  std::vector<uint32_t> indices;
 };
 
 #pragma endregion
@@ -477,63 +525,77 @@ GetGPUDscriptorHandle(ID3D12DescriptorHeap *descriptorHeap,
 
 ModelData LoadObjFile(const std::string &directoryPath,
                       const std::string &filename) {
-
   ModelData modelData;
   std::vector<Vector4> positions;
   std::vector<Vector3> normals;
   std::vector<Vector2> texcoords;
-  std::string line;
 
   std::ifstream file(directoryPath + "/" + filename);
-  assert(file.is_open());
+  if (!file.is_open()) {
+    std::cerr << "Failed to open OBJ file: " << directoryPath + "/" + filename
+              << std::endl;
+    return {};
+  }
+
+  std::string line;
 
   while (std::getline(file, line)) {
-    std::string identifier;
     std::istringstream s(line);
+    std::string identifier;
     s >> identifier;
 
     if (identifier == "v") {
-      Vector4 position;
+      Vector4 position{};
 
       s >> position.x >> position.y >> position.z;
 
       position.w = 1.0f;
+      position.x *= -1.0f;
       positions.push_back(position);
 
     } else if (identifier == "vt") {
-      Vector2 texcoord;
+      Vector2 texcoord{};
       s >> texcoord.x >> texcoord.y;
       texcoords.push_back(texcoord);
-    } else if (identifier == "vn") {
-      Vector3 normal;
-      s >> normal.x >> normal.y >> normal.z;
 
+    } else if (identifier == "vn") {
+
+      Vector3 normal{};
+
+      s >> normal.x >> normal.y >> normal.z;
+      normal.x *= -1.0f;
       normals.push_back(normal);
+
     } else if (identifier == "f") {
 
-      // 三角形を作る
-      for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
-        std::string vertexDefinition;
-        s >> vertexDefinition;
+      VertexData triangle[3] = {};
 
-        // 頂点の定義は "v/t/n" の形式なので分割してIndexを取得する
-        std::istringstream v(vertexDefinition);
+      for (uint32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
+        std::string vdef;
+        s >> vdef;
 
+        std::istringstream vstream(vdef);
         uint32_t elementIndices[3];
+
         for (int32_t element = 0; element < 3; ++element) {
           std::string index;
-          std::getline(v, index, '/');
+          std::getline(vstream, index, '/');
           elementIndices[element] = std::stoi(index);
         }
 
-        // 要素へのIndexから実際の値を取得して、頂点を構築する。
         Vector4 position = positions[elementIndices[0] - 1];
         Vector2 texcoord = texcoords[elementIndices[1] - 1];
         Vector3 normal = normals[elementIndices[2] - 1];
 
-        VertexData vertex = {position, texcoord, normal};
-        modelData.vertices.push_back(vertex);
+        //  VertexData vertex = {position, texcoord, normal};
+
+        // modelData.vertices.push_back(vertex);
+
+        triangle[faceVertex] = {position, texcoord, normal};
       }
+      modelData.vertices.push_back(triangle[2]);
+      modelData.vertices.push_back(triangle[1]);
+      modelData.vertices.push_back(triangle[0]);
     }
   }
   file.close();
@@ -1238,11 +1300,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region VertexResourceを生成する
 
-  // 分割数（自由に調整可能）
-  const int kLatitudeDiv = 16;  // 縦（経度）
-  const int kLongitudeDiv = 16; // 横（緯度）
+  //// 分割数（自由に調整可能）
+  // const int kLatitudeDiv = 16;  // 縦（経度）
+  // const int kLongitudeDiv = 16; // 横（緯度）
 
-  int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
+  // int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
   ModelData modelData = LoadObjFile("resource", "plane.obj");
 
@@ -1258,11 +1320,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 #pragma region IndexResourceを生成する
 
   ID3D12Resource *indexResource = CreateBufferResource(
-      device, sizeof(uint32_t) * sphereVertexCount * sphereVertexCount);
+      device, sizeof(uint32_t) * modelData.vertices.size());
 
   D3D12_INDEX_BUFFER_VIEW indexBufferView{};
   indexBufferView.BufferLocation = indexResource->GetGPUVirtualAddress();
-  indexBufferView.SizeInBytes = sizeof(uint32_t) * sphereVertexCount;
+  indexBufferView.SizeInBytes =
+      UINT(sizeof(uint32_t) * modelData.vertices.size());
   indexBufferView.Format = DXGI_FORMAT_R32_UINT;
 
   ID3D12Resource *indexResourceSprite =
@@ -1489,7 +1552,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   std::memcpy(vertexData, modelData.vertices.data(),
               sizeof(VertexData) * modelData.vertices.size());
 
-  /*
+  vertexResource->Unmap(0, nullptr);
+
   //// 頂点生成（(kSubdivision + 1)^2 個）
   // for (uint32_t latIndex = 0; latIndex <= kSubdivision; ++latIndex) {
   //   float lat = -PI / 2.0f + kLatEvery * latIndex;
@@ -1502,7 +1566,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   //      u = 1.0f - epsilon; // wrap防止
   //    }
 
-  //    Vector3 pos = {cosf(lat) * cosf(lon), sinf(lat), cosf(lat) * sinf(lon)};
+  //    Vector3 pos = {cosf(lat) * cosf(lon), sinf(lat), cosf(lat) *
+  // sinf(lon)};
 
   //    uint32_t vertexIndex = latIndex * (kSubdivision + 1) + lonIndex;
 
@@ -1535,7 +1600,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   //  }
   //}
 
-  */
+  uint32_t *indexData = nullptr;
+  indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
+  std::memcpy(indexData, modelData.vertices.data(),
+              sizeof(uint32_t) * modelData.vertices.size());
 
 #pragma region 画像データの頂点データ
   VertexData *vertexDataSprite = nullptr;
@@ -1561,6 +1629,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
+#pragma region インデックスデータの生成
+
   uint32_t *indexDataSprite = nullptr;
   indexResourceSprite->Map(0, nullptr,
                            reinterpret_cast<void **>(&indexDataSprite));
@@ -1574,6 +1644,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   indexDataSprite[3] = 1;
   indexDataSprite[4] = 2;
   indexDataSprite[5] = 3;
+
+#pragma endregion
 #pragma endregion
 
 #pragma region 変数宣言
@@ -1812,8 +1884,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       commandList->SetGraphicsRootDescriptorTable(
           2, useMonsterBall ? textureSrvHandleGPU2 : textureSrvHandleGPU);
       //     uint32_t indexCount = kSubdivision * kSubdivision * 6;
-      commandList->DrawIndexedInstanced(UINT(modelData.vertices.size()), 1, 0,
-                                        0, 0);
+
+      commandList->DrawInstanced(UINT(modelData.vertices.size()), 1, 0, 0);
+
+      // commandList->DrawIndexedInstanced(UINT(modelData.vertices.size()), 1,
+      // 0,
+      //                                   0, 0);
 
       commandList->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList->IASetIndexBuffer(&indexBufferViewSprite);
