@@ -149,9 +149,13 @@ struct DirectionalLight {
   float intensity;   // ライトの強度
 };
 
+struct MaterialData {
+  std::string textureFilePath;
+};
+
 struct ModelData {
   std::vector<VertexData> vertices;
-  std::vector<uint32_t> indices;
+  MaterialData material;
 };
 
 #pragma endregion
@@ -521,6 +525,32 @@ GetGPUDscriptorHandle(ID3D12DescriptorHeap *descriptorHeap,
 
 #pragma endregion
 
+#pragma region MaterialTemplate関数
+MaterialData LoadMaterialTemplateFile(const std::string &directoryPath,
+                                      const std::string &filename) {
+  MaterialData materialData;
+  std::string line;
+  std::ifstream file(directoryPath + "/" + filename);
+
+  assert(file.is_open());
+
+  while (std::getline(file, line)) {
+    std::string identifier;
+    std::istringstream s(line);
+
+    s >> identifier;
+
+    if (identifier == "map_Kd") {
+      std::string textureFilename;
+      s >> textureFilename;
+
+      materialData.textureFilePath = directoryPath + "/" + textureFilename;
+    }
+  }
+  return materialData;
+}
+#pragma endregion
+
 #pragma region Objファイルを読む関数
 
 ModelData LoadObjFile(const std::string &directoryPath,
@@ -556,6 +586,8 @@ ModelData LoadObjFile(const std::string &directoryPath,
     } else if (identifier == "vt") {
       Vector2 texcoord{};
       s >> texcoord.x >> texcoord.y;
+
+      texcoord.y = 1.0f - texcoord.y;
       texcoords.push_back(texcoord);
 
     } else if (identifier == "vn") {
@@ -570,7 +602,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
 
       VertexData triangle[3] = {};
 
-      for (uint32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
+      for (int32_t faceVertex = 0; faceVertex < 3; ++faceVertex) {
         std::string vdef;
         s >> vdef;
 
@@ -587,15 +619,18 @@ ModelData LoadObjFile(const std::string &directoryPath,
         Vector2 texcoord = texcoords[elementIndices[1] - 1];
         Vector3 normal = normals[elementIndices[2] - 1];
 
-        //  VertexData vertex = {position, texcoord, normal};
-
-        // modelData.vertices.push_back(vertex);
-
         triangle[faceVertex] = {position, texcoord, normal};
       }
       modelData.vertices.push_back(triangle[2]);
       modelData.vertices.push_back(triangle[1]);
       modelData.vertices.push_back(triangle[0]);
+
+    } else if (identifier == "mtllib") {
+      std::string materialFilename;
+      s >> materialFilename;
+
+      modelData.material =
+          LoadMaterialTemplateFile(directoryPath, materialFilename);
     }
   }
   file.close();
@@ -1306,7 +1341,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
-  ModelData modelData = LoadObjFile("resource", "plane.obj");
+  ModelData modelData = LoadObjFile("resource", "axis.obj");
 
   // VertexResource を生成
   ID3D12Resource *vertexResource = CreateBufferResource(
@@ -1466,7 +1501,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   ID3D12Resource *intermadiate =
       UploadTextureData(textureResource, mipImages, device, commandList);
 
-  DirectX::ScratchImage mipImages2 = LoadTexture("resource/monsterBall.png");
+  DirectX::ScratchImage mipImages2 =
+      LoadTexture(modelData.material.textureFilePath);
   const DirectX::TexMetadata &metadata2 = mipImages2.GetMetadata();
   ID3D12Resource *textureResource2 = CreateTextureResource(device, metadata2);
   ID3D12Resource *intermadiate2 =
@@ -1552,7 +1588,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   std::memcpy(vertexData, modelData.vertices.data(),
               sizeof(VertexData) * modelData.vertices.size());
 
-  vertexResource->Unmap(0, nullptr);
+  //  vertexResource->Unmap(0, nullptr);
 
   //// 頂点生成（(kSubdivision + 1)^2 個）
   // for (uint32_t latIndex = 0; latIndex <= kSubdivision; ++latIndex) {
