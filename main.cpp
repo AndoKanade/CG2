@@ -258,15 +258,14 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS *exception) {
 
 #pragma region CompileShader関数
 
-Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
+IDxcBlob *CompileShader(
     // CompilerするShaderファイルへのパス
     const std::wstring &filePath,
     // Compilerに使用するProfile
     const wchar_t *profile,
     // 初期化で生成したもの3つt
-    const Microsoft::WRL::ComPtr<IDxcUtils> &dxcUtils,
-    const Microsoft::WRL::ComPtr<IDxcCompiler3> &dxCompiler,
-    const Microsoft::WRL::ComPtr<IDxcIncludeHandler> &includeHandler) {
+    IDxcUtils *dxcUtils, IDxcCompiler3 *dxCompiler,
+    IDxcIncludeHandler *includeHandler) {
 
 #pragma region HLSLファイルを読み込む
 
@@ -303,10 +302,10 @@ Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
 
   // コンパイラの設定
   Microsoft::WRL::ComPtr<IDxcResult> shaderResult = nullptr;
-  hr = dxCompiler->Compile(&shaderSourceBuffer,  // 読み込んだファイル
-                           arguments,            // コンパイルオプション
-                           _countof(arguments),  // コンパイルオプションの数
-                           includeHandler.Get(), // includeが含まれた数
+  hr = dxCompiler->Compile(&shaderSourceBuffer, // 読み込んだファイル
+                           arguments,           // コンパイルオプション
+                           _countof(arguments), // コンパイルオプションの数
+                           includeHandler,      // includeが含まれた数
                            IID_PPV_ARGS(&shaderResult) // コンパイル結果
   );
 
@@ -329,7 +328,7 @@ Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
 
 #pragma region コンパイル結果を取得して返す
 
-  Microsoft::WRL::ComPtr<IDxcBlob> shaderBlob = nullptr;
+ IDxcBlob *shaderBlob = nullptr;
   hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob),
                                nullptr);
   assert(SUCCEEDED(hr));
@@ -392,7 +391,7 @@ CreateBufferResource(const Microsoft::WRL::ComPtr<ID3D12Device> &device,
       D3D12_RESOURCE_STATE_GENERIC_READ, nullptr, IID_PPV_ARGS(&buffer));
 
   assert(SUCCEEDED(hr));
- 
+
   return buffer;
 }
 
@@ -1176,15 +1175,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region DXCの初期化
 
-  Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils = nullptr;
-  Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler = nullptr;
+  IDxcUtils *dxcUtils = nullptr;
+  IDxcCompiler3 *dxcCompiler = nullptr;
 
   hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
   assert(SUCCEEDED(hr));
   hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler));
   assert(SUCCEEDED(hr));
 
-  Microsoft::WRL::ComPtr<IDxcIncludeHandler> includeHandler = nullptr;
+IDxcIncludeHandler* includeHandler = nullptr;
   hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
   assert(SUCCEEDED(hr));
 
@@ -1249,8 +1248,8 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
-  Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob = nullptr;
-  Microsoft::WRL::ComPtr<ID3DBlob> errorBlob = nullptr;
+  ID3DBlob *signatureBlob = nullptr;
+  ID3DBlob *errorBlob = nullptr;
   hr = D3D12SerializeRootSignature(&descriptionRootSignature,
                                    D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob,
                                    &errorBlob);
@@ -1308,11 +1307,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region shaderをコンパイルする
 
-  Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob = CompileShader(
+  IDxcBlob *vertexShaderBlob = CompileShader(
       L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
   assert(vertexShaderBlob != nullptr);
 
-  Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob = CompileShader(
+  IDxcBlob *pixelShaderBlob = CompileShader(
       L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
   assert(pixelShaderBlob != nullptr);
 
@@ -2050,14 +2049,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region 解放処理
 
-  commandList.Reset();
-  commandAllocator.Reset();
-  commandQueue.Reset();
-  swapChain.Reset();
-  device.Reset();
-  fence.Reset();
-
   CloseHandle(fenceEvent);
+
+  signatureBlob->Release();
+  if (errorBlob) {
+    errorBlob->Release();
+  }
+
+  pixelShaderBlob->Release();
+  vertexShaderBlob->Release();
 
 #ifdef _DEBUG
 #endif
