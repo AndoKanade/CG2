@@ -18,6 +18,7 @@
 #include <strsafe.h>
 #include <vector>
 #include <wrl.h>
+#include <xaudio2.h>
 
 #include "externals/DirectXTex/DirectXTex.h"
 #include "externals/DirectXTex/d3dx12.h"
@@ -37,6 +38,7 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
 #pragma comment(lib, "Dbghelp.lib")
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dxcompiler.lib")
+#pragma comment(lib, "xaudio2.lib")
 
 using namespace DirectX;
 
@@ -171,9 +173,124 @@ struct D3DResourceLeakChecker {
   }
 };
 
+#pragma region サウンド再生
+struct ChunkHeader {
+  char id[4];
+  int32_t size;
+};
+
+struct RiffHeader {
+  ChunkHeader chunk;
+  char type[4];
+};
+
+struct FormatChunk {
+  ChunkHeader chunk;
+  WAVEFORMATEX fmt;
+};
+
+struct SoundData {
+  WAVEFORMATEX wfex;
+  BYTE *pBUffer;
+  unsigned int bufferSize;
+  ;
+};
+
+#pragma endregion
+
 #pragma endregion
 
 #pragma region 関数たち
+
+#pragma region 音声データの読み込み
+
+SoundData SoundLoadWave(const char *filename) {
+
+  std::ifstream file;
+  file.open(filename, std::ios_base::binary);
+  assert(file.is_open());
+
+  RiffHeader riff;
+  file.read((char *)&riff, sizeof(riff));
+
+  if (strncmp(riff.chunk.id, "RIFF", 4) != 0) {
+    assert(0);
+  }
+
+  if (strncmp(riff.type, "WAVE", 4) != 0) {
+    assert(0);
+  }
+
+  FormatChunk format = {};
+  file.read((char *)&format, sizeof(ChunkHeader));
+
+  if (strncmp(format.chunk.id, "fmt", 4) != 0) {
+    assert(0);
+  }
+
+  assert(format.chunk.size <= sizeof(format.fmt));
+  file.read((char *)&format.fmt, format.chunk.size);
+
+  ChunkHeader data;
+  file.read((char *)&data, sizeof(data));
+
+  if (strncmp(data.id, "JUNK", 4) == 0) {
+    file.seekg(data.size, std::ios_base::cur);
+
+    file.read((char *)&data, sizeof(data));
+  }
+
+  if (strncmp(data.id, "data", 4) != 0) {
+    assert(0);
+  }
+
+  char *pBuffer = new char[data.size];
+  file.read(pBuffer, data.size);
+
+  file.close();
+
+  SoundData soundData = {};
+
+  soundData.wfex = format.fmt;
+  soundData.pBUffer = reinterpret_cast<BYTE *>(pBuffer);
+  soundData.bufferSize = data.size;
+
+  return soundData;
+}
+
+#pragma endregion
+
+#pragma region 音声データの解放
+void SoundUnload(SoundData *soundData) {
+  delete[] soundData->pBUffer;
+
+  soundData->pBUffer = 0;
+  soundData->bufferSize = 0;
+  soundData->wfex = {};
+}
+
+#pragma endregion
+
+#pragma region サウンドの再生
+
+void SoundPlayWave(IXAudio2 *xAudio2, const SoundData &soundData) {
+  HRESULT result;
+
+  IXAudio2SourceVoice *pSourceVoice = nullptr;
+  result = xAudio2->CreateSourceVoice(&pSourceVoice, &soundData.wfex);
+  assert(SUCCEEDED(result));
+
+  XAUDIO2_BUFFER buf{};
+
+  buf.pAudioData = soundData.pBUffer;
+  buf.AudioBytes = soundData.bufferSize;
+  buf.Flags = XAUDIO2_END_OF_STREAM;
+
+  result = pSourceVoice->SubmitSourceBuffer(&buf);
+  result = pSourceVoice->Start();
+}
+
+#pragma endregion
 
 #pragma region ConvertString関数
 std::wstring ConvertString(const std::string &str) {
@@ -926,6 +1043,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory;
   Microsoft::WRL::ComPtr<ID3D12Device> device;
 
+  Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
+  IXAudio2MasteringVoice *masterVoice;
+
   CoInitializeEx(0, COINIT_MULTITHREADED);
   // 例外が発生したらダンプを出力する
   SetUnhandledExceptionFilter(ExportDump);
@@ -1084,6 +1204,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                                  IID_PPV_ARGS(&commandList));
   // コマンドリストの生成に失敗したら起動しない
   assert(SUCCEEDED(hr));
+
+  HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+  result = xAudio2->CreateMasteringVoice(&masterVoice);
 
   Microsoft::WRL::ComPtr<IDXGISwapChain4> swapChain = nullptr;
   DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
@@ -1746,6 +1869,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
+  SoundData soundData = SoundLoadWave("resource/Alarm01.wav");
+  bool hasPlayed = false;
+
 #pragma endregion
   MSG msg{};
   while (msg.message != WM_QUIT) {
@@ -1756,6 +1882,11 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       DispatchMessage(&msg);
     } else {
       // ゲームの処理
+
+      if (!hasPlayed) {
+        SoundPlayWave(xAudio2.Get(), soundData);
+        hasPlayed = true;
+      }
 
 #ifdef _DEBUG
       ImGui_ImplDX12_NewFrame();
@@ -2019,7 +2150,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   ImGui::DestroyContext();
 #pragma endregion
 
-  Log("Hello,DirectX!\n");
+  Log("unkillable demon king\n");
 
 #pragma region エラー放置しない処理
 #ifdef _DEBUG
@@ -2048,6 +2179,9 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #endif
 #pragma endregion
+
+  xAudio2.Reset();
+  SoundUnload(&soundData);
 
   CloseHandle(fenceEvent);
   CloseWindow(hwnd);
