@@ -905,7 +905,7 @@ namespace DirectX
         _Outptr_ ID3D12Resource** ppResource) noexcept;
 
     HRESULT __cdecl PrepareUpload(
-        _In_ ID3D12Device* pDevice,
+        _In_ ID3D12Device *pDevice,
         _In_reads_(nimages) const Image* srcImages, _In_ size_t nimages, _In_ const TexMetadata& metadata,
         std::vector<D3D12_SUBRESOURCE_DATA>& subresources);
 
