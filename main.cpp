@@ -257,14 +257,14 @@ static LONG WINAPI ExportDump(EXCEPTION_POINTERS *exception) {
 #pragma endregion
 
 #pragma region CompileShader関数
-
-IDxcBlob *CompileShader(
+Microsoft::WRL::ComPtr<IDxcBlob> CompileShader(
     // CompilerするShaderファイルへのパス
     const std::wstring &filePath,
     // Compilerに使用するProfile
     const wchar_t *profile,
     // 初期化で生成したもの3つt
-    IDxcUtils *dxcUtils, IDxcCompiler3 *dxCompiler,
+    const Microsoft::WRL::ComPtr<IDxcUtils> &dxcUtils,
+    const Microsoft::WRL::ComPtr<IDxcCompiler3> &dxCompiler,
     IDxcIncludeHandler *includeHandler) {
 
 #pragma region HLSLファイルを読み込む
@@ -328,7 +328,7 @@ IDxcBlob *CompileShader(
 
 #pragma region コンパイル結果を取得して返す
 
- IDxcBlob *shaderBlob = nullptr;
+  IDxcBlob *shaderBlob = nullptr;
   hr = shaderResult->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlob),
                                nullptr);
   assert(SUCCEEDED(hr));
@@ -1175,15 +1175,15 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
 #pragma region DXCの初期化
 
-  IDxcUtils *dxcUtils = nullptr;
-  IDxcCompiler3 *dxcCompiler = nullptr;
+  Microsoft::WRL::ComPtr<IDxcUtils> dxcUtils = nullptr;
+  Microsoft::WRL::ComPtr<IDxcCompiler3> dxcCompiler = nullptr;
 
   hr = DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&dxcUtils));
   assert(SUCCEEDED(hr));
   hr = DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&dxcCompiler));
   assert(SUCCEEDED(hr));
 
-IDxcIncludeHandler* includeHandler = nullptr;
+  IDxcIncludeHandler *includeHandler = nullptr;
   hr = dxcUtils->CreateDefaultIncludeHandler(&includeHandler);
   assert(SUCCEEDED(hr));
 
@@ -1248,8 +1248,8 @@ IDxcIncludeHandler* includeHandler = nullptr;
 
 #pragma endregion
 
-  ID3DBlob *signatureBlob = nullptr;
-  ID3DBlob *errorBlob = nullptr;
+  Microsoft::WRL::ComPtr<ID3DBlob> signatureBlob = nullptr;
+  Microsoft::WRL::ComPtr<ID3DBlob> errorBlob = nullptr;
   hr = D3D12SerializeRootSignature(&descriptionRootSignature,
                                    D3D_ROOT_SIGNATURE_VERSION_1, &signatureBlob,
                                    &errorBlob);
@@ -1307,12 +1307,14 @@ IDxcIncludeHandler* includeHandler = nullptr;
 
 #pragma region shaderをコンパイルする
 
-  IDxcBlob *vertexShaderBlob = CompileShader(
-      L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils, dxcCompiler, includeHandler);
+  Microsoft::WRL::ComPtr<IDxcBlob> vertexShaderBlob =
+      CompileShader(L"Object3D.VS.hlsl", L"vs_6_0", dxcUtils.Get(),
+                    dxcCompiler.Get(), includeHandler);
   assert(vertexShaderBlob != nullptr);
 
-  IDxcBlob *pixelShaderBlob = CompileShader(
-      L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils, dxcCompiler, includeHandler);
+  Microsoft::WRL::ComPtr<IDxcBlob> pixelShaderBlob =
+      CompileShader(L"Object3D.PS.hlsl", L"ps_6_0", dxcUtils.Get(),
+                    dxcCompiler.Get(), includeHandler);
   assert(pixelShaderBlob != nullptr);
 
 #pragma endregion
@@ -2047,23 +2049,9 @@ IDxcIncludeHandler* includeHandler = nullptr;
 #endif
 #pragma endregion
 
-#pragma region 解放処理
-
   CloseHandle(fenceEvent);
-
-  signatureBlob->Release();
-  if (errorBlob) {
-    errorBlob->Release();
-  }
-
-  pixelShaderBlob->Release();
-  vertexShaderBlob->Release();
-
-#ifdef _DEBUG
-#endif
   CloseWindow(hwnd);
 
-#pragma endregion
   CoUninitialize();
 
   return 0;
