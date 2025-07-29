@@ -19,6 +19,8 @@
 #include <vector>
 #include <wrl.h>
 #include <xaudio2.h>
+#define DRECTINPUT_VERSION 0x0800 // DirectInput version 8.0
+#include <dinput.h>
 
 #include "externals/DirectXTex/DirectXTex.h"
 #include "externals/DirectXTex/d3dx12.h"
@@ -39,6 +41,8 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd,
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "dxcompiler.lib")
 #pragma comment(lib, "xaudio2.lib")
+#pragma comment(lib, "dinput8.lib")
+#pragma comment(lib, "dxguid.lib")
 
 using namespace DirectX;
 
@@ -198,6 +202,12 @@ struct SoundData {
 
 #pragma endregion
 
+struct WindowData {
+  HINSTANCE hInstance;
+  HWND hwnd;
+  // 他にも必要な情報を含む
+};
+
 #pragma endregion
 
 #pragma region 関数たち
@@ -224,7 +234,7 @@ SoundData SoundLoadWave(const char *filename) {
   FormatChunk format = {};
   file.read((char *)&format, sizeof(ChunkHeader));
 
-  if (strncmp(format.chunk.id, "fmt", 4) != 0) {
+  if (strncmp(format.chunk.id, "fmt ", 4) != 0) {
     assert(0);
   }
 
@@ -708,7 +718,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
       s >> position.x >> position.y >> position.z;
 
       position.w = 1.0f;
-      position.x *= -1.0f;
+      //  position.x *= -1.0f;
       positions.push_back(position);
 
     } else if (identifier == "vt") {
@@ -723,7 +733,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
       Vector3 normal{};
 
       s >> normal.x >> normal.y >> normal.z;
-      normal.x *= -1.0f;
+      //  normal.x *= -1.0f;
       normals.push_back(normal);
 
     } else if (identifier == "f") {
@@ -1037,7 +1047,7 @@ Matrix4x4 MakeOrthographicMatrix(float left, float top, float right,
 
 #pragma endregion
 
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
   D3DResourceLeakChecker leakCheck;
 
   Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory;
@@ -1204,9 +1214,6 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
                                  IID_PPV_ARGS(&commandList));
   // コマンドリストの生成に失敗したら起動しない
   assert(SUCCEEDED(hr));
-
-  HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
-  result = xAudio2->CreateMasteringVoice(&masterVoice);
 
   Microsoft::WRL::ComPtr<IDXGISwapChain4> swapChain = nullptr;
   DXGI_SWAP_CHAIN_DESC1 swapChainDesc{};
@@ -1483,7 +1490,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
-  ModelData modelData = LoadObjFile("resource", "axis.obj");
+  ModelData modelData = LoadObjFile("resource", "plane.obj");
 
   // VertexResource を生成
   Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource = CreateBufferResource(
@@ -1827,6 +1834,40 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   indexDataSprite[5] = 3;
 
 #pragma endregion
+
+#pragma endregion
+
+#pragma region XAudio2の初期化
+  HRESULT result = XAudio2Create(&xAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+  result = xAudio2->CreateMasteringVoice(&masterVoice);
+  assert(SUCCEEDED(result));
+#pragma endregion
+
+#pragma region DirectInputの初期化
+  IDirectInput8 *directInput = nullptr;
+  WindowData w = {};
+
+  w.hInstance = hInstance;
+
+  result =
+      DirectInput8Create(w.hInstance, DIRECTINPUT_VERSION, IID_IDirectInput8,
+                         (void **)&directInput, nullptr);
+  assert(SUCCEEDED(result));
+#pragma endregion
+
+#pragma region キーボードの初期化
+  IDirectInputDevice8 *keyboard = nullptr;
+
+  result = directInput->CreateDevice(GUID_SysKeyboard, &keyboard, NULL);
+  assert(SUCCEEDED(result));
+
+  result = keyboard->SetDataFormat(&c_dfDIKeyboard);
+  assert(SUCCEEDED(result));
+
+  result = keyboard->SetCooperativeLevel(
+      hwnd, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE | DISCL_NOWINKEY);
+  assert(SUCCEEDED(result));
+
 #pragma endregion
 
 #pragma region 変数宣言
@@ -2004,6 +2045,13 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
       *wvpData = {worldViewProjectionMatrix, worldMatrix};
 
 #pragma endregion
+
+      keyboard->Acquire();
+      BYTE key[256] = {};
+      keyboard->GetDeviceState(sizeof(key), key);
+      if (key[DIK_SPACE]) {
+        OutputDebugStringA("Hit space\n");
+      }
 
       ///================================
       /// 描画処理
