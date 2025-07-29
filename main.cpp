@@ -224,7 +224,7 @@ SoundData SoundLoadWave(const char *filename) {
   FormatChunk format = {};
   file.read((char *)&format, sizeof(ChunkHeader));
 
-  if (strncmp(format.chunk.id, "fmt", 4) != 0) {
+  if (strncmp(format.chunk.id, "fmt ", 4) != 0) {
     assert(0);
   }
 
@@ -1483,7 +1483,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
-  ModelData modelData = LoadObjFile("resource", "axis.obj");
+  ModelData modelData = LoadObjFile("resource", "plane.obj");
 
   // VertexResource を生成
   Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource = CreateBufferResource(
@@ -2094,7 +2094,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList.Get()->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-      //  commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+      commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
 
