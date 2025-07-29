@@ -158,6 +158,7 @@ struct MaterialData {
 
 struct ModelData {
   std::vector<VertexData> vertices;
+  std::vector<uint32_t> indices;
   MaterialData material;
 };
 
@@ -291,6 +292,40 @@ void SoundPlayWave(IXAudio2 *xAudio2, const SoundData &soundData) {
 }
 
 #pragma endregion
+
+template <typename T>
+void UploadBufferData(
+    const Microsoft::WRL::ComPtr<ID3D12Device> &device,
+    const Microsoft::WRL::ComPtr<ID3D12GraphicsCommandList> &commandList,
+    const Microsoft::WRL::ComPtr<ID3D12Resource> &destinationResource,
+    const T *srcData, size_t elementCount) {
+
+  if (elementCount == 0 || srcData == nullptr) {
+    return; // 何もアップロードしない
+  }
+
+  size_t bufferSize = sizeof(T) * elementCount;
+
+  Microsoft::WRL::ComPtr<ID3D12Resource> uploadResource = nullptr;
+  CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
+  CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize);
+
+  HRESULT hr = device->CreateCommittedResource(
+      &heapProps, D3D12_HEAP_FLAG_NONE, &bufferDesc,
+      D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+      IID_PPV_ARGS(&uploadResource));
+  assert(SUCCEEDED(hr));
+
+  void *mappedPtr = nullptr;
+  CD3DX12_RANGE readRange(0, 0);
+  hr = uploadResource->Map(0, &readRange, &mappedPtr);
+  assert(SUCCEEDED(hr));
+  memcpy(mappedPtr, srcData, bufferSize);
+  uploadResource->Unmap(0, nullptr);
+
+  commandList->CopyBufferRegion(destinationResource.Get(), 0,
+                                uploadResource.Get(), 0, bufferSize);
+}
 
 #pragma region ConvertString関数
 std::wstring ConvertString(const std::string &str) {
@@ -752,6 +787,11 @@ ModelData LoadObjFile(const std::string &directoryPath,
       modelData.vertices.push_back(triangle[2]);
       modelData.vertices.push_back(triangle[1]);
       modelData.vertices.push_back(triangle[0]);
+
+      modelData.indices.clear();
+      for (uint32_t i = 0; i < modelData.vertices.size(); ++i) {
+        modelData.indices.push_back(i); // 連番で生成（非インデックスモデル）
+      }
 
     } else if (identifier == "mtllib") {
       std::string materialFilename;
@@ -1483,11 +1523,17 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
   // int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
+  static int modelIndex = 0;
+  static int prevModelIndex = -1;
+  const char *modelFiles[] = {"plane.obj", "multiMesh.obj", "axis.obj",
+                              "multiMaterial.obj"};
+
   ModelData modelData = LoadObjFile("resource", "plane.obj");
 
   // VertexResource を生成
   Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource = CreateBufferResource(
       device, sizeof(VertexData) * modelData.vertices.size());
+  static size_t indexCount = 0;
 
   // Spriteの矩形
   Microsoft::WRL::ComPtr<ID3D12Resource> vertexResourceSprite =
@@ -1727,18 +1773,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   // const float kLatEvery = PI / float(kSubdivision);
   // const float epsilon = 1e-5f;
 
-  VertexData *vertexData = nullptr;
-  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
-
-  std::memcpy(vertexData, modelData.vertices.data(),
-              sizeof(VertexData) * modelData.vertices.size());
-
   //  vertexResource->Unmap(0, nullptr);
 
-  //// 頂点生成（(kSubdivision + 1)^2 個）
+  // 頂点生成（(kSubdivision + 1)^2 個）
   // for (uint32_t latIndex = 0; latIndex <= kSubdivision; ++latIndex) {
-  //   float lat = -PI / 2.0f + kLatEvery * latIndex;
-  //   float v = 1.0f - float(latIndex) / float(kSubdivision);
+  //  float lat = -PI / 2.0f + kLatEvery * latIndex;
+  //  float v = 1.0f - float(latIndex) / float(kSubdivision);
 
   //  for (uint32_t lonIndex = 0; lonIndex <= kSubdivision; ++lonIndex) {
   //    float lon = lonIndex * kLonEvery;
@@ -1747,8 +1787,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   //      u = 1.0f - epsilon; // wrap防止
   //    }
 
-  //    Vector3 pos = {cosf(lat) * cosf(lon), sinf(lat), cosf(lat) *
-  // sinf(lon)};
+  //    Vector3 pos = {cosf(lat) * cosf(lon), sinf(lat), cosf(lat) * sinf(lon)};
 
   //    uint32_t vertexIndex = latIndex * (kSubdivision + 1) + lonIndex;
 
@@ -1757,6 +1796,12 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   //    vertexData[vertexIndex].texcoord = {u, v};
   //  }
   //}
+
+  VertexData *vertexData = nullptr;
+  vertexResource->Map(0, nullptr, reinterpret_cast<void **>(&vertexData));
+
+  std::memcpy(vertexData, modelData.vertices.data(),
+              sizeof(VertexData) * modelData.vertices.size());
 
   // uint32_t *indexData = nullptr;
   // indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
@@ -1781,10 +1826,10 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
   //  }
   //}
 
-  uint32_t *indexData = nullptr;
-  indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
-  std::memcpy(indexData, modelData.vertices.data(),
-              sizeof(uint32_t) * modelData.vertices.size());
+  // uint32_t *indexData = nullptr;
+  // indexResource->Map(0, nullptr, reinterpret_cast<void **>(&indexData));
+  // std::memcpy(indexData, modelData.vertices.data(),
+  //             sizeof(uint32_t) * modelData.vertices.size());
 
 #pragma region 画像データの頂点データ
   VertexData *vertexDataSprite = nullptr;
@@ -1895,6 +1940,50 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 
       ImGui::Begin("Settings");
 
+      if (ImGui::Combo("Model", &modelIndex, modelFiles,
+                       IM_ARRAYSIZE(modelFiles))) {
+        if (modelIndex != prevModelIndex) {
+          prevModelIndex = modelIndex;
+
+          // モデルデータ読み込み
+          modelData = LoadObjFile("resource", modelFiles[modelIndex]);
+
+          // 頂点バッファ再作成
+          vertexResource = CreateBufferResource(
+              device, sizeof(VertexData) * modelData.vertices.size());
+
+          // 頂点データをGPUに転送
+          UploadBufferData<VertexData>(
+              device, commandList, vertexResource.Get(),
+              modelData.vertices.data(), modelData.vertices.size());
+
+          // 頂点ビュー更新
+          vertexBufferView.BufferLocation =
+              vertexResource->GetGPUVirtualAddress();
+          vertexBufferView.SizeInBytes =
+              UINT(sizeof(VertexData) * modelData.vertices.size());
+          vertexBufferView.StrideInBytes = sizeof(VertexData);
+
+          // インデックスバッファ再作成
+          indexResource = CreateBufferResource(
+              device, sizeof(uint32_t) * modelData.vertices.size());
+
+          // インデックスデータをGPUに転送
+          UploadBufferData<uint32_t>(device, commandList, indexResource.Get(),
+                                     modelData.indices.data(),
+                                     modelData.indices.size());
+
+          // インデックスビュー更新
+          indexBufferView.BufferLocation =
+              indexResource->GetGPUVirtualAddress();
+          indexBufferView.SizeInBytes =
+              UINT(sizeof(uint32_t) * modelData.vertices.size());
+          indexBufferView.Format = DXGI_FORMAT_R32_UINT;
+
+          // 描画時に使うインデックス数更新
+          indexCount = static_cast<UINT>(modelData.vertices.size());
+        }
+      }
       // === Triangle Color ===
       if (ImGui::CollapsingHeader("Triangle Color")) {
         ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
