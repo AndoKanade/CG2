@@ -718,7 +718,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
       s >> position.x >> position.y >> position.z;
 
       position.w = 1.0f;
-      //  position.x *= -1.0f;
+        position.x *= -1.0f;
       positions.push_back(position);
 
     } else if (identifier == "vt") {
@@ -1490,7 +1490,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
   // int sphereVertexCount = kLatitudeDiv * kLongitudeDiv * 6;
 
-  ModelData modelData = LoadObjFile("resource", "plane.obj");
+  ModelData modelData = LoadObjFile("resource", "axis.obj");
 
   // VertexResource を生成
   Microsoft::WRL::ComPtr<ID3D12Resource> vertexResource = CreateBufferResource(
