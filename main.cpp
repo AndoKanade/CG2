@@ -1910,7 +1910,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
 #pragma endregion
 
-  SoundData soundData = SoundLoadWave("resource/Alarm01.wav");
+  SoundData soundData = SoundLoadWave("resource/You_and_Me.wav");
   bool hasPlayed = false;
 
 #pragma endregion
@@ -1937,7 +1937,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       ImGui::Begin("Settings");
 
       // === Triangle Color ===
-      if (ImGui::CollapsingHeader("Triangle Color")) {
+      if (ImGui::CollapsingHeader("model Color")) {
         ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
       }
 
@@ -1950,12 +1950,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       }
 
       // === Transform (SRT Controller) ===
-      if (ImGui::CollapsingHeader("SphereTransform")) {
+      if (ImGui::CollapsingHeader("modelTransform")) {
         ImGui::SliderAngle("RotateX", &transform.rotate.x);
         ImGui::SliderAngle("RotateY", &transform.rotate.y);
         ImGui::SliderAngle("RotateZ", &transform.rotate.z);
-        ImGui::Checkbox("useMonsterBall", &useMonsterBall);
-        materialData->enableLighting = useMonsterBall;
+        //ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+        //materialData->enableLighting = useMonsterBall;
       }
 
       // === Light Settings ===
@@ -2142,7 +2142,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList.Get()->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-      //  commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+        commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
 
