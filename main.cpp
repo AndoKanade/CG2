@@ -718,7 +718,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
       s >> position.x >> position.y >> position.z;
 
       position.w = 1.0f;
-        position.x *= -1.0f;
+      position.x *= -1.0f;
       positions.push_back(position);
 
     } else if (identifier == "vt") {
@@ -733,7 +733,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
       Vector3 normal{};
 
       s >> normal.x >> normal.y >> normal.z;
-      //  normal.x *= -1.0f;
+      normal.x *= -1.0f;
       normals.push_back(normal);
 
     } else if (identifier == "f") {
@@ -780,6 +780,23 @@ ModelData LoadObjFile(const std::string &directoryPath,
 #pragma endregion
 
 #pragma region 数学関数
+
+Vector3 Normalize(const Vector3 &v) {
+  float length = std::sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
+  if (length == 0.0f) {
+    return {0.0f, 0.0f, 0.0f}; // 零ベクトルに対して安全処理
+  }
+  return {v.x / length, v.y / length, v.z / length};
+}
+
+
+Vector3 TransformNormal(const Vector3 &v, const Matrix4x4 &m) {
+  return {
+      v.x * m.m[0][0] + v.y * m.m[1][0] + v.z * m.m[2][0],
+      v.x * m.m[0][1] + v.y * m.m[1][1] + v.z * m.m[2][1],
+      v.x * m.m[0][2] + v.y * m.m[1][2] + v.z * m.m[2][2],
+  };
+}
 
 Matrix4x4 MakeIdentity4x4() {
   Matrix4x4 result;
@@ -1929,79 +1946,97 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         hasPlayed = true;
       }
 
-#ifdef _DEBUG
-      ImGui_ImplDX12_NewFrame();
-      ImGui_ImplWin32_NewFrame();
-      ImGui::NewFrame();
-
-      ImGui::Begin("Settings");
-
-      // === Triangle Color ===
-      if (ImGui::CollapsingHeader("Triangle Color")) {
-        ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
-      }
-
-      if (ImGui::CollapsingHeader("CameraTransform")) {
-        ImGui::DragFloat3("CameraTranslate", &cameraTransform.translate.x,
-                          0.1f);
-        ImGui::SliderAngle("CameraRotateX", &cameraTransform.rotate.x);
-        ImGui::SliderAngle("CameraRotateY", &cameraTransform.rotate.y);
-        ImGui::SliderAngle("CameraRotateZ", &cameraTransform.rotate.z);
-      }
-
-      // === Transform (SRT Controller) ===
-      if (ImGui::CollapsingHeader("SphereTransform")) {
-        ImGui::SliderAngle("RotateX", &transform.rotate.x);
-        ImGui::SliderAngle("RotateY", &transform.rotate.y);
-        ImGui::SliderAngle("RotateZ", &transform.rotate.z);
-        ImGui::Checkbox("useMonsterBall", &useMonsterBall);
-        materialData->enableLighting = useMonsterBall;
-      }
-
-      // === Light Settings ===
-      if (ImGui::CollapsingHeader("Light Settings")) {
-        ImGui::Text("Directional Light");
-
-        ImGui::ColorEdit4(
-            "Color", reinterpret_cast<float *>(&directionalLightData->color));
-        ImGui::SliderFloat3(
-            "Direction",
-            reinterpret_cast<float *>(&directionalLightData->direction), -1.0f,
-            1.0f);
-
-        // Normalize direction
-        Vector3 &v = directionalLightData->direction;
-        XMVECTOR dir = XMVectorSet(v.x, v.y, v.z, 0.0f);
-        dir = XMVector3Normalize(dir);
-        XMStoreFloat3(reinterpret_cast<XMFLOAT3 *>(&v), dir);
-
-        ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f,
-                           10.0f);
-      }
-
-      // === Sprite Transform ===
-      if (ImGui::CollapsingHeader("Sprite Transform")) {
-        ImGui::DragFloat3("Scale##Sprite", &transformSprite.scale.x, 0.1f, 0.1f,
-                          10.0f);
-        ImGui::DragFloat3("Rotate (rad)##Sprite", &transformSprite.rotate.x,
-                          0.01f, -3.14f, 3.14f);
-        ImGui::DragFloat3("Translate##Sprite", &transformSprite.translate.x,
-                          1.0f, -700.0f, 700.0f);
-      }
-
-      // === UV Transform Sprite ===
-      if (ImGui::CollapsingHeader("UV Transform Sprite")) {
-        ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f,
-                          -10.0f, 10.0f);
-        ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f,
-                          10.0f);
-        ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
-      }
-
-      ImGui::End();
-      ImGui::Render();
-
-#endif
+      // #ifdef _DEBUG
+      //       ImGui_ImplDX12_NewFrame();
+      //       ImGui_ImplWin32_NewFrame();
+      //       ImGui::NewFrame();
+      //
+      //       ImGui::Begin("Settings");
+      //
+      //       // === Triangle Color ===
+      //       if (ImGui::CollapsingHeader("Triangle Color")) {
+      //         ImGui::ColorEdit4("Color", reinterpret_cast<float
+      //         *>(&triangleColor));
+      //       }
+      //
+      //       if (ImGui::CollapsingHeader("CameraTransform")) {
+      //         ImGui::DragFloat3("CameraTranslate",
+      //         &cameraTransform.translate.x,
+      //                           0.1f);
+      //         ImGui::SliderAngle("CameraRotateX", &cameraTransform.rotate.x);
+      //         ImGui::SliderAngle("CameraRotateY", &cameraTransform.rotate.y);
+      //         ImGui::SliderAngle("CameraRotateZ", &cameraTransform.rotate.z);
+      //       }
+      //
+      //       // === Transform (SRT Controller) ===
+      //
+      //       ImGui::SliderAngle("RotateX", &transform.rotate.x);
+      //       ImGui::SliderAngle("RotateY", &transform.rotate.y);
+      //       ImGui::SliderAngle("RotateZ", &transform.rotate.z);
+      //       // ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+      //       // materialData->enableLighting = useMonsterBall;
+      //
+      //       // === Light Settings ===
+      //
+      //       ImGui::Text("Directional Light");
+      //
+      //       ImGui::ColorEdit4(
+      //           "Color", reinterpret_cast<float
+      //           *>(&directionalLightData->color));
+      //       ImGui::SliderFloat3(
+      //           "Direction",
+      //           reinterpret_cast<float *>(&directionalLightData->direction),
+      //           -1.0f, 1.0f);
+      //
+      //       // Normalize direction
+      //       // direction:
+      //       ユーザーがImGuiで編集した方向ベクトル（ワールド空間） Vector3 dir
+      //       = directionalLightData->direction;
+      //
+      //       // ビュー行列で変換（上3x3だけを使う = 平行移動を除く）
+      //       Vector3 viewSpaceDir = TransformNormal(dir, viewMatrix);
+      //       viewSpaceDir = Normalize(viewSpaceDir);
+      //
+      //       // GPUに送る用に書き換える
+      //       directionalLightData->direction = viewSpaceDir;
+      //
+      //       Vector3 &v = directionalLightData->direction;
+      //       XMVECTOR dir = XMVectorSet(v.x, v.y, v.z, 0.0f);
+      //       dir = XMVector3Normalize(dir);
+      //       XMStoreFloat3(reinterpret_cast<XMFLOAT3 *>(&v), dir);
+      //
+      //       ImGui::SliderFloat("Intensity", &directionalLightData->intensity,
+      //       0.0f,
+      //                          10.0f);
+      //
+      //       // === Sprite Transform ===
+      //       if (ImGui::CollapsingHeader("Sprite Transform")) {
+      //         ImGui::DragFloat3("Scale##Sprite", &transformSprite.scale.x,
+      //         0.1f, 0.1f,
+      //                           10.0f);
+      //         ImGui::DragFloat3("Rotate (rad)##Sprite",
+      //         &transformSprite.rotate.x,
+      //                           0.01f, -3.14f, 3.14f);
+      //         ImGui::DragFloat3("Translate##Sprite",
+      //         &transformSprite.translate.x,
+      //                           1.0f, -700.0f, 700.0f);
+      //       }
+      //
+      //       // === UV Transform Sprite ===
+      //       if (ImGui::CollapsingHeader("UV Transform Sprite")) {
+      //         ImGui::DragFloat2("UVTranslate",
+      //         &uvTransformSprite.translate.x, 0.01f,
+      //                           -10.0f, 10.0f);
+      //         ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f,
+      //         -10.0f,
+      //                           10.0f);
+      //         ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+      //       }
+      //
+      //       ImGui::End();
+      //       ImGui::Render();
+      //
+      // #endif
 
       ///================================
       /// 更新処理
@@ -2041,8 +2076,90 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       Matrix4x4 worldViewProjectionMatrix =
           Multiply(worldMatrix, Multiply(viewMatrix, projectionMatrix));
 
-      //     transform.rotate.y += 0.01f;
+      //  transform.rotate.y += 0.01f;
       *wvpData = {worldViewProjectionMatrix, worldMatrix};
+
+      // 元のライト方向（ワールド空間）
+      Vector3 worldLightDirection = {0.0f, 0.0f, -1.0f};
+
+#ifdef _DEBUG
+      ImGui_ImplDX12_NewFrame();
+      ImGui_ImplWin32_NewFrame();
+      ImGui::NewFrame();
+
+      ImGui::Begin("Settings");
+
+      // === Triangle Color ===
+      if (ImGui::CollapsingHeader("Triangle Color")) {
+        ImGui::ColorEdit4("Color", reinterpret_cast<float *>(&triangleColor));
+      }
+
+      if (ImGui::CollapsingHeader("CameraTransform")) {
+        ImGui::DragFloat3("CameraTranslate", &cameraTransform.translate.x,
+                          0.1f);
+        ImGui::SliderAngle("CameraRotateX", &cameraTransform.rotate.x);
+        ImGui::SliderAngle("CameraRotateY", &cameraTransform.rotate.y);
+        ImGui::SliderAngle("CameraRotateZ", &cameraTransform.rotate.z);
+      }
+
+      // === Transform (SRT Controller) ===
+
+      ImGui::SliderAngle("RotateX", &transform.rotate.x);
+      ImGui::SliderAngle("RotateY", &transform.rotate.y);
+      ImGui::SliderAngle("RotateZ", &transform.rotate.z);
+      // ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+      // materialData->enableLighting = useMonsterBall;
+
+      // === Light Settings ===
+
+      ImGui::Text("Directional Light");
+
+      ImGui::ColorEdit4(
+          "Color", reinterpret_cast<float *>(&directionalLightData->color));
+      ImGui::SliderFloat3(
+          "Direction",
+          reinterpret_cast<float *>(&directionalLightData->direction), -1.0f,
+          1.0f);
+
+      // direction: ImGuiで編集した方向（ワールド空間）
+      Vector3 worldDir = directionalLightData->direction;
+
+      // ビュー行列で法線変換（平行移動を除く）してビュー空間に
+      Vector3 viewSpaceDir = TransformNormal(worldDir, viewMatrix);
+
+      // 正規化
+      viewSpaceDir = Normalize(viewSpaceDir);
+
+      // 変換した方向をGPUに送る
+      directionalLightData->direction = viewSpaceDir;
+
+      ImGui::SliderFloat("Intensity", &directionalLightData->intensity, 0.0f,
+                         10.0f);
+
+      // === Sprite Transform ===
+      if (ImGui::CollapsingHeader("Sprite Transform")) {
+        ImGui::DragFloat3("Scale##Sprite", &transformSprite.scale.x, 0.01f,
+                          0.1f, 10.0f);
+        ImGui::DragFloat3("Rotate (rad)##Sprite", &transformSprite.rotate.x,
+                          0.001f, -3.14f, 3.14f);
+        ImGui::DragFloat3("Translate##Sprite", &transformSprite.translate.x,
+                          0.2f, -700.0f, 700.0f);
+      }
+
+
+      // === UV Transform Sprite ===
+      if (ImGui::CollapsingHeader("UV Transform Sprite")) {
+        ImGui::DragFloat2("UVTranslate", &uvTransformSprite.translate.x, 0.01f,
+                          -10.0f, 10.0f);
+        ImGui::DragFloat2("UVScale", &uvTransformSprite.scale.x, 0.01f, -10.0f,
+                          10.0f);
+        ImGui::SliderAngle("UVRotate", &uvTransformSprite.rotate.z);
+      }
+
+      ImGui::End();
+      ImGui::Render();
+
+#endif
 
 #pragma endregion
 
@@ -2142,7 +2259,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList.Get()->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-      //  commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+      commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
 
