@@ -722,7 +722,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
       s >> position.x >> position.y >> position.z;
 
       position.w = 1.0f;
-      //  position.x *= -1.0f;
+        position.x *= -1.0f;
       positions.push_back(position);
 
     } else if (identifier == "vt") {
@@ -737,7 +737,7 @@ ModelData LoadObjFile(const std::string &directoryPath,
       Vector3 normal{};
 
       s >> normal.x >> normal.y >> normal.z;
-      //  normal.x *= -1.0f;
+        normal.x *= -1.0f;
       normals.push_back(normal);
 
     } else if (identifier == "f") {
