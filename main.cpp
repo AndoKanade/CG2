@@ -212,6 +212,8 @@ struct WindowData {
 
 #pragma region 関数たち
 
+#pragma region 音声
+
 #pragma region 音声データの読み込み
 
 SoundData SoundLoadWave(const char *filename) {
@@ -299,6 +301,8 @@ void SoundPlayWave(IXAudio2 *xAudio2, const SoundData &soundData) {
   result = pSourceVoice->SubmitSourceBuffer(&buf);
   result = pSourceVoice->Start();
 }
+
+#pragma endregion
 
 #pragma endregion
 
@@ -1954,8 +1958,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         ImGui::SliderAngle("RotateX", &transform.rotate.x);
         ImGui::SliderAngle("RotateY", &transform.rotate.y);
         ImGui::SliderAngle("RotateZ", &transform.rotate.z);
-        //ImGui::Checkbox("useMonsterBall", &useMonsterBall);
-        //materialData->enableLighting = useMonsterBall;
+        // ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+        // materialData->enableLighting = useMonsterBall;
       }
 
       // === Light Settings ===
@@ -2142,7 +2146,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList.Get()->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-        commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+      commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
 
