@@ -1602,10 +1602,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
     } else {
       // ゲームの処理
 
-      if (!hasPlayed) {
-        SoundPlayWave(xAudio2.Get(), soundData);
-        hasPlayed = true;
-      }
+      //if (!hasPlayed) {
+      //  SoundPlayWave(xAudio2.Get(), soundData);
+      //  hasPlayed = true;
+      //}
 
 #ifdef _DEBUG
       ImGui_ImplDX12_NewFrame();
