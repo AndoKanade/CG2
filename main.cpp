@@ -729,7 +729,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
   Microsoft::WRL::ComPtr<IDXGIFactory7> dxgiFactory;
   Microsoft::WRL::ComPtr<ID3D12Device> device;
-
   Microsoft::WRL::ComPtr<IXAudio2> xAudio2;
   IXAudio2MasteringVoice *masterVoice;
 
