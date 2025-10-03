@@ -1425,6 +1425,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
 
   blendDesc.RenderTarget[0].RenderTargetWriteMask =
       D3D12_COLOR_WRITE_ENABLE_ALL;
+  blendDesc.RenderTarget[0].BlendEnable = true;
+  blendDesc.RenderTarget[0].SrcBlend = D3D12_BLEND_SRC_ALPHA;
+  blendDesc.RenderTarget[0].BlendOp = D3D12_BLEND_OP_ADD;
+  blendDesc.RenderTarget[0].DestBlend = D3D12_BLEND_INV_SRC_ALPHA;
+  blendDesc.RenderTarget[0].SrcBlendAlpha = D3D12_BLEND_ONE;
+  blendDesc.RenderTarget[0].BlendOpAlpha = D3D12_BLEND_OP_ADD;
+  blendDesc.RenderTarget[0].DestBlendAlpha = D3D12_BLEND_ZERO;
 
 #pragma endregion
 
@@ -1954,16 +1961,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
         ImGui::SliderAngle("RotateX", &transform.rotate.x);
         ImGui::SliderAngle("RotateY", &transform.rotate.y);
         ImGui::SliderAngle("RotateZ", &transform.rotate.z);
-        //ImGui::Checkbox("useMonsterBall", &useMonsterBall);
-        //materialData->enableLighting = useMonsterBall;
+        // ImGui::Checkbox("useMonsterBall", &useMonsterBall);
+        // materialData->enableLighting = useMonsterBall;
       }
 
-      // === Light Settings ===
       if (ImGui::CollapsingHeader("Light Settings")) {
         ImGui::Text("Directional Light");
 
         ImGui::ColorEdit4(
             "Color", reinterpret_cast<float *>(&directionalLightData->color));
+
         ImGui::SliderFloat3(
             "Direction",
             reinterpret_cast<float *>(&directionalLightData->direction), -1.0f,
@@ -2127,10 +2134,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
       commandList.Get()->DrawInstanced(UINT(modelData.vertices.size()), 1, 0,
                                        0);
 
-      // commandList->DrawIndexedInstanced(UINT(modelData.vertices.size()), 1,
-      // 0,
-      //                                   0, 0);
-
       commandList.Get()->IASetVertexBuffers(0, 1, &vertexBufferViewSprite);
       commandList.Get()->IASetIndexBuffer(&indexBufferViewSprite);
       commandList.Get()->IASetPrimitiveTopology(
@@ -2142,7 +2145,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int) {
           1, transformationMatrixResourceSprite->GetGPUVirtualAddress());
       commandList.Get()->SetGraphicsRootDescriptorTable(2, textureSrvHandleGPU);
 
-        commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
+      //  commandList->DrawIndexedInstanced(6, 1, 0, 0, 0);
 
       ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), commandList.Get());
 
